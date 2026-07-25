@@ -13,40 +13,46 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ================================================================
-//  STATE - Tracking for AI Logic
+//  STATE
 // ================================================================
 let consecutivePredictionType = null;
 let consecutivePredictionCount = 0;
 let lossStreakCount = 0;
 
 // ================================================================
-//  FETCH GAME RESULT
+//  FETCH GAME RESULT - REAL API ONLY (No Fallback)
 // ================================================================
 async function fetchGameResult() {
-  try {
-    const resp = await fetch('https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        pageSize: 10, pageNo: 1, typeId: 1, language: 0,
-        random: '69b04bcd437f496c8c97e763af16ba03',
-        signature: '10BDFF509233B671B9DB6C661F1DC2F3',
-        timestamp: Math.floor(Date.now() / 1000)
-      })
-    });
-    const data = await resp.json();
-    if (data?.data?.list?.[0]) return data.data.list[0];
-    throw new Error('Empty');
-  } catch (_) {
-    return {
-      issueNumber: (2026072401 + Math.floor(Math.random() * 1000)).toString(),
-      number: Math.floor(Math.random() * 10).toString()
-    };
+  // REAL API CALL - No fallback, throw error if fails
+  const resp = await fetch('https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pageSize: 10,
+      pageNo: 1,
+      typeId: 1,
+      language: 0,
+      random: '69b04bcd437f496c8c97e763af16ba03',
+      signature: '10BDFF509233B671B9DB6C661F1DC2F3',
+      timestamp: Math.floor(Date.now() / 1000)
+    })
+  });
+
+  if (!resp.ok) {
+    throw new Error(`API Error: ${resp.status} ${resp.statusText}`);
   }
+
+  const data = await resp.json();
+  
+  if (!data?.data?.list?.[0]) {
+    throw new Error('No data in API response');
+  }
+
+  return data.data.list[0];
 }
 
 // ================================================================
-//  DEEP ANALYSIS ENGINE (Mathematical + Pattern + RNG Analysis)
+//  DEEP ANALYSIS ENGINE
 // ================================================================
 function deepAnalysis(history) {
   const valid = history.filter(h => h.result !== null && h.result !== undefined);
@@ -70,22 +76,18 @@ function deepAnalysis(history) {
     };
   }
 
-  // --- Basic Statistics ---
   const numbers = recent.map(r => Number(r.result));
   const totalBig = numbers.filter(n => n >= 5).length;
   const totalSmall = numbers.filter(n => n < 5).length;
   
-  // Frequency
   const freq = {};
   numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
   
-  // Most frequent
   let maxF = 0, mostFreq = null;
   for (const [n, c] of Object.entries(freq)) {
     if (c > maxF) { maxF = c; mostFreq = Number(n); }
   }
 
-  // --- Consecutive ---
   const types = numbers.map(n => n >= 5 ? 'BIG' : 'SMALL');
   let cb = 0, cs = 0;
   for (let i = types.length - 1; i >= 0; i--) {
@@ -95,7 +97,6 @@ function deepAnalysis(history) {
     if (types[i] !== types[types.length - 1]) break;
   }
 
-  // --- Trend (Weighted Moving Average) ---
   const weights = numbers.map((_, i) => i + 1);
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   const weightedSum = numbers.reduce((sum, n, i) => sum + n * weights[i], 0);
@@ -103,31 +104,25 @@ function deepAnalysis(history) {
   const simpleMean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
   const trend = wma > simpleMean + 0.5 ? 'up' : wma < simpleMean - 0.5 ? 'down' : 'neutral';
 
-  // --- Volatility (Standard Deviation) ---
   const mean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
   const variance = numbers.reduce((sum, n) => sum + Math.pow(n - mean, 2), 0) / numbers.length;
   const stdDev = Math.sqrt(variance);
 
-  // --- RNG Bias Detection ---
-  // Check if numbers are evenly distributed (0-9)
   const expectedPerNumber = numbers.length / 10;
   let chiSquare = 0;
   for (let i = 0; i <= 9; i++) {
     const observed = freq[i] || 0;
     chiSquare += Math.pow(observed - expectedPerNumber, 2) / expectedPerNumber;
   }
-  // Chi-square test (degrees of freedom = 9)
-  const isBiased = chiSquare > 16.92; // 95% confidence level
+  const isBiased = chiSquare > 16.92;
   const rngBias = isBiased ? (mostFreq >= 5 ? 'BIG' : 'SMALL') : 'neutral';
 
-  // --- Pattern Strength ---
   const uniquePatterns = new Set();
   for (let i = 0; i < types.length - 2; i++) {
     uniquePatterns.add(types.slice(i, i + 3).join(','));
   }
   const patternStrength = Math.min(100, (uniquePatterns.size / Math.pow(2, 3)) * 100);
 
-  // --- Analysis Notes ---
   const notes = [];
   if (cb >= 4) notes.push(`🔥 Strong BIG streak (${cb})`);
   if (cs >= 4) notes.push(`❄️ Strong SMALL streak (${cs})`);
@@ -154,54 +149,40 @@ function deepAnalysis(history) {
 }
 
 // ================================================================
-//  ADVANCED AI PREDICT (Deep Analysis + Pattern DB + Mathematical)
+//  ADVANCED AI PREDICT
 // ================================================================
 async function advancedAIPredict(history) {
-  // 1. Get Pattern Insight from DB
   const patternDB = await db.getAllPatterns();
-  
-  // 2. Deep Analysis
   const analysis = deepAnalysis(history);
   
-  // 3. Build scoring based on multiple factors
   let bigScore = 50;
   let smallScore = 50;
   const reasons = [];
 
-  // Factor 1: Trend (Weighted Moving Average)
   if (analysis.trend === 'up') {
-    bigScore += 8;
-    smallScore -= 4;
+    bigScore += 8; smallScore -= 4;
     reasons.push(`📈 Trend: Up (WMA)`);
   } else if (analysis.trend === 'down') {
-    smallScore += 8;
-    bigScore -= 4;
+    smallScore += 8; bigScore -= 4;
     reasons.push(`📉 Trend: Down (WMA)`);
   }
 
-  // Factor 2: Consecutive Streak (Mean Reversion)
   if (analysis.consecutive.big >= 3) {
-    smallScore += 16;
-    bigScore -= 8;
+    smallScore += 16; bigScore -= 8;
     reasons.push(`🔄 Mean Reversion (BIG x${analysis.consecutive.big})`);
   } else if (analysis.consecutive.small >= 3) {
-    bigScore += 16;
-    smallScore -= 8;
+    bigScore += 16; smallScore -= 8;
     reasons.push(`🔄 Mean Reversion (SMALL x${analysis.consecutive.small})`);
   }
 
-  // Factor 3: RNG Bias
   if (analysis.rngBias === 'BIG') {
-    bigScore += 10;
-    smallScore -= 5;
-    reasons.push(`🎯 RNG Bias: BIG (Chi-square test)`);
+    bigScore += 10; smallScore -= 5;
+    reasons.push(`🎯 RNG Bias: BIG`);
   } else if (analysis.rngBias === 'SMALL') {
-    smallScore += 10;
-    bigScore -= 5;
-    reasons.push(`🎯 RNG Bias: SMALL (Chi-square test)`);
+    smallScore += 10; bigScore -= 5;
+    reasons.push(`🎯 RNG Bias: SMALL`);
   }
 
-  // Factor 4: Pattern DB Insight (Global Historical)
   const lastThree = history.slice(0, 3).map(h => Number(h.result)).filter(n => !isNaN(n));
   const lastThreeTypes = lastThree.map(n => n >= 5 ? 'BIG' : 'SMALL');
   if (lastThreeTypes.length === 3) {
@@ -212,19 +193,16 @@ async function advancedAIPredict(history) {
       const smallRatio = data.nextSmall / data.total;
       if (bigRatio > 0.65) {
         const boost = Math.min(25, bigRatio * 30);
-        bigScore += boost;
-        smallScore -= boost * 0.5;
+        bigScore += boost; smallScore -= boost * 0.5;
         reasons.push(`🌐 Global DB: ${key} → BIG ${(bigRatio*100).toFixed(0)}% (${data.total} occ)`);
       } else if (smallRatio > 0.65) {
         const boost = Math.min(25, smallRatio * 30);
-        smallScore += boost;
-        bigScore -= boost * 0.5;
+        smallScore += boost; bigScore -= boost * 0.5;
         reasons.push(`🌐 Global DB: ${key} → SMALL ${(smallRatio*100).toFixed(0)}% (${data.total} occ)`);
       }
     }
   }
 
-  // Factor 5: Most Frequent Number (Hot Number)
   if (analysis.mostFreq !== null) {
     if (analysis.mostFreq >= 5) {
       bigScore += 4;
@@ -235,42 +213,33 @@ async function advancedAIPredict(history) {
     }
   }
 
-  // Factor 6: Volatility adjustment
   if (analysis.volatility > 2.5) {
-    // High volatility - reduce confidence
     const penalty = Math.min(10, analysis.volatility * 2);
     bigScore -= penalty / 2;
     smallScore -= penalty / 2;
     reasons.push(`📊 High volatility (${analysis.volatility.toFixed(2)})`);
   }
 
-  // Factor 7: Prediction Rotation (Avoid repeating)
   if (consecutivePredictionType === 'BIG') {
     const penalty = Math.min(16, consecutivePredictionCount * 4);
-    bigScore -= penalty;
-    smallScore += 6;
+    bigScore -= penalty; smallScore += 6;
     reasons.push(`🔄 Rotation: avoid BIG (${consecutivePredictionCount}x)`);
   } else if (consecutivePredictionType === 'SMALL') {
     const penalty = Math.min(16, consecutivePredictionCount * 4);
-    smallScore -= penalty;
-    bigScore += 6;
+    smallScore -= penalty; bigScore += 6;
     reasons.push(`🔄 Rotation: avoid SMALL (${consecutivePredictionCount}x)`);
   }
 
-  // Factor 8: Loss Defense
   if (lossStreakCount >= 2) {
     if (consecutivePredictionType === 'BIG') {
-      smallScore += 20;
-      bigScore -= 12;
+      smallScore += 20; bigScore -= 12;
       reasons.push(`🛡️ Loss defense: flip from BIG`);
     } else if (consecutivePredictionType === 'SMALL') {
-      bigScore += 20;
-      smallScore -= 12;
+      bigScore += 20; smallScore -= 12;
       reasons.push(`🛡️ Loss defense: flip from SMALL`);
     }
   }
 
-  // Final scoring with noise
   bigScore += (Math.random() * 8) - 4;
   smallScore += (Math.random() * 8) - 4;
   bigScore = Math.max(10, Math.min(90, bigScore));
@@ -280,7 +249,6 @@ async function advancedAIPredict(history) {
   let confidence = Math.round(Math.max(bigScore, smallScore) * 0.85 + 15);
   confidence = Math.min(94, Math.max(45, confidence));
 
-  // Possible Number
   const range = predictionType === 'BIG' ? [5, 6, 7, 8, 9] : [0, 1, 2, 3, 4];
   let bestNum = null, bestCount = -1;
   for (const n of range) {
@@ -293,7 +261,6 @@ async function advancedAIPredict(history) {
     else bestNum = predictionType === 'BIG' ? 7 : 2;
   }
 
-  // Update tracking
   if (consecutivePredictionType === predictionType) {
     consecutivePredictionCount++;
   } else {
@@ -321,17 +288,20 @@ async function advancedAIPredict(history) {
 }
 
 // ================================================================
-//  BACKGROUND CRON JOB (Runs every 60 seconds - 24/7)
+//  BACKGROUND PROCESSOR (Real API Only)
 // ================================================================
 async function backgroundProcessor() {
   console.log(`[${new Date().toISOString()}] 🔄 Background processing started...`);
   
   try {
-    // 1. Fetch latest result
     const result = await fetchGameResult();
-    if (!result) return;
+    if (!result) {
+      console.log(`[${new Date().toISOString()}] ⚠️ No result from API`);
+      return;
+    }
 
-    // 2. Check if already processed
+    console.log(`[${new Date().toISOString()}] 📥 Fetched: ${result.issueNumber} → ${result.number}`);
+
     const existing = await db.getHistory(5);
     const lastPeriod = existing.length > 0 ? existing[0].period : null;
     if (lastPeriod === result.issueNumber) {
@@ -342,10 +312,8 @@ async function backgroundProcessor() {
     const actualNumber = Number(result.number);
     const actualType = actualNumber >= 5 ? 'BIG' : 'SMALL';
 
-    // 3. Get last 20 history for analysis
     const history = await db.getHistoryForAnalysis(25);
     
-    // 4. Check if we have a pending prediction to resolve
     let lastPrediction = null;
     let lastPossibleNumber = null;
     if (history.length > 0 && history[0].status === 'Pending') {
@@ -354,18 +322,13 @@ async function backgroundProcessor() {
       
       const matched = (actualType === lastPrediction || actualNumber == lastPossibleNumber);
       
-      // Update the pending record with actual result
-      // We need to update the specific record
-      // For now, we'll add it as resolved
       await db.updateHistoryResult(history[0].id, actualNumber, actualType, matched ? 'WIN' : 'LOSS');
       
       console.log(`[${new Date().toISOString()}] 📝 Resolved: ${history[0].period} → ${actualType} (${matched ? 'WIN' : 'LOSS'})`);
     }
 
-    // 5. Generate new prediction for next period
     const aiDecision = await advancedAIPredict(history);
     
-    // 6. Save prediction to history
     const nextPeriod = (BigInt(result.issueNumber) + 1n).toString();
     await db.addHistory({
       period: nextPeriod,
@@ -379,7 +342,6 @@ async function backgroundProcessor() {
 
     console.log(`[${new Date().toISOString()}] ✅ Saved prediction for period ${nextPeriod}: ${aiDecision.prediction}`);
 
-    // 7. Update Pattern DB with the actual result
     if (history.length >= 3) {
       const recentHistory = await db.getHistoryForAnalysis(5);
       const sorted = recentHistory.reverse();
@@ -406,13 +368,11 @@ async function backgroundProcessor() {
 //  API ROUTES
 // ================================================================
 
-// 1. Get Game Result
 app.get('/api/game-result', async (req, res) => {
   try { const result = await fetchGameResult(); res.json(result); }
-  catch (e) { res.status(500).json({ error: 'Failed to fetch' }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 2. Get Prediction (for frontend)
 app.post('/api/predict', async (req, res) => {
   try {
     const { history } = req.body;
@@ -429,7 +389,6 @@ app.post('/api/predict', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Prediction failed' }); }
 });
 
-// 3. Submit Result (from frontend)
 app.post('/api/submit-result', async (req, res) => {
   try {
     const { period, prediction, possible_number, result, result_type, status, calculation } = req.body;
@@ -441,7 +400,6 @@ app.post('/api/submit-result', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to save' }); }
 });
 
-// 4. Get History
 app.get('/api/history', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
@@ -450,7 +408,6 @@ app.get('/api/history', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to get history' }); }
 });
 
-// 5. Get Pattern Stats
 app.get('/api/pattern-stats', async (req, res) => {
   try {
     const patterns = await db.getAllPatterns();
@@ -461,7 +418,6 @@ app.get('/api/pattern-stats', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// 6. Clear ALL (History + Patterns) - Admin only
 app.post('/api/clear-all', async (req, res) => {
   try {
     await db.clearAllHistory();
@@ -470,7 +426,6 @@ app.post('/api/clear-all', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// 7. Clear ONLY Current History (Keep Pattern DB)
 app.post('/api/clear-history-only', async (req, res) => {
   try {
     await db.clearAllHistory();
@@ -478,30 +433,28 @@ app.post('/api/clear-history-only', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// 8. Test API
 app.get('/api/test', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'BLZ-AI Server running',
+    message: 'BLZ-AI Server running (Real API only)',
     gemini_key_set: !!GEMINI_KEY,
     background_running: true
   });
 });
 
 // ================================================================
-//  START SERVER + BACKGROUND WORKER
+//  START SERVER
 // ================================================================
 
-// Run once immediately on startup
 setTimeout(() => {
   backgroundProcessor();
 }, 5000);
 
-// Run every 60 seconds (24/7)
 setInterval(backgroundProcessor, 60000);
 
 app.listen(PORT, () => {
   console.log(`🚀 BLZ-AI Server running on port ${PORT}`);
   console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
-  console.log(`⏰ Background processor running every 60 seconds (24/7)`);
+  console.log(`⏰ Background processor running every 60 seconds (Real API only)`);
+  console.log(`⚠️ No fallback - will error if API fails`);
 });
