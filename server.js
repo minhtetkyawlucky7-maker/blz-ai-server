@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const db = require('./db');
-const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,417 +13,393 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ================================================================
-//  ADVANCED MATHEMATICAL ALGORITHM ANALYSIS
+//  STATE - Tracking for AI Logic
 // ================================================================
-class MathematicalAnalyzer {
-    constructor() {
-        this.bayesianPrior = { big: 0.5, small: 0.5 };
-        this.markovMatrix = {
-            'BIG->BIG': 0.5, 'BIG->SMALL': 0.5,
-            'SMALL->BIG': 0.5, 'SMALL->SMALL': 0.5
-        };
-        this.cusum = 0;
-        this.movingAverage = [];
-        this.maxMA = 10;
-    }
-
-    // 1. Bayesian Probability
-    bayesianAnalysis(history) {
-        if (history.length < 5) return { big: 0.5, small: 0.5 };
-        
-        const recent = history.slice(-20);
-        const bigs = recent.filter(h => Number(h.result) >= 5).length;
-        const smalls = recent.filter(h => Number(h.result) < 5).length;
-        const total = bigs + smalls;
-        
-        // Update prior based on recent data
-        const likelihoodBig = bigs / total;
-        const likelihoodSmall = smalls / total;
-        
-        // Posterior = Prior * Likelihood
-        const posteriorBig = this.bayesianPrior.big * likelihoodBig;
-        const posteriorSmall = this.bayesianPrior.small * likelihoodSmall;
-        const sum = posteriorBig + posteriorSmall;
-        
-        return {
-            big: posteriorBig / sum,
-            small: posteriorSmall / sum
-        };
-    }
-
-    // 2. Markov Chain
-    markovAnalysis(history) {
-        if (history.length < 4) return { big: 0.5, small: 0.5 };
-        
-        const types = history.map(h => Number(h.result) >= 5 ? 'BIG' : 'SMALL');
-        let bigBig = 0, bigSmall = 0, smallBig = 0, smallSmall = 0;
-        
-        for (let i = 0; i < types.length - 1; i++) {
-            const current = types[i];
-            const next = types[i + 1];
-            if (current === 'BIG' && next === 'BIG') bigBig++;
-            else if (current === 'BIG' && next === 'SMALL') bigSmall++;
-            else if (current === 'SMALL' && next === 'BIG') smallBig++;
-            else if (current === 'SMALL' && next === 'SMALL') smallSmall++;
-        }
-        
-        const lastType = types[types.length - 1];
-        let bigProb = 0.5, smallProb = 0.5;
-        
-        if (lastType === 'BIG') {
-            const totalBig = bigBig + bigSmall;
-            bigProb = totalBig > 0 ? bigBig / totalBig : 0.5;
-            smallProb = totalBig > 0 ? bigSmall / totalBig : 0.5;
-        } else {
-            const totalSmall = smallBig + smallSmall;
-            bigProb = totalSmall > 0 ? smallBig / totalSmall : 0.5;
-            smallProb = totalSmall > 0 ? smallSmall / totalSmall : 0.5;
-        }
-        
-        // Update matrix
-        this.markovMatrix['BIG->BIG'] = bigBig / (bigBig + bigSmall + 0.01);
-        this.markovMatrix['BIG->SMALL'] = bigSmall / (bigBig + bigSmall + 0.01);
-        this.markovMatrix['SMALL->BIG'] = smallBig / (smallBig + smallSmall + 0.01);
-        this.markovMatrix['SMALL->SMALL'] = smallSmall / (smallBig + smallSmall + 0.01);
-        
-        return { big: bigProb, small: smallProb };
-    }
-
-    // 3. CUSUM (Cumulative Sum)
-    cusumAnalysis(history) {
-        if (history.length < 3) return 0;
-        
-        const recent = history.slice(-10);
-        const values = recent.map(h => Number(h.result) - 4.5); // Center around 4.5
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
-        const std = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
-        
-        // CUSUM drift detection
-        let drift = 0;
-        for (const v of values) {
-            drift += (v - mean) / (std + 0.01);
-        }
-        this.cusum = drift * 0.1 + this.cusum * 0.9; // Smooth
-        
-        return this.cusum;
-    }
-
-    // 4. Moving Average
-    movingAverageAnalysis(history) {
-        const recent = history.slice(-this.maxMA);
-        const values = recent.map(h => Number(h.result));
-        if (values.length < 3) return 4.5;
-        
-        const avg = values.reduce((a, b) => a + b, 0) / values.length;
-        this.movingAverage.push(avg);
-        if (this.movingAverage.length > this.maxMA) {
-            this.movingAverage.shift();
-        }
-        
-        return avg;
-    }
-
-    // 5. Combine All Methods
-    analyze(history) {
-        const bayesian = this.bayesianAnalysis(history);
-        const markov = this.markovAnalysis(history);
-        const cusum = this.cusumAnalysis(history);
-        const movingAvg = this.movingAverageAnalysis(history);
-        
-        // Weighted combination
-        const bigScore = (bayesian.big * 0.3 + markov.big * 0.3 + 0.4 * (movingAvg >= 4.5 ? 0.7 : 0.3));
-        const smallScore = (bayesian.small * 0.3 + markov.small * 0.3 + 0.4 * (movingAvg < 4.5 ? 0.7 : 0.3));
-        
-        // CUSUM adjustment
-        const cusumFactor = Math.min(0.2, Math.abs(cusum) * 0.02);
-        const finalBig = bigScore + (cusum > 0 ? cusumFactor : -cusumFactor);
-        const finalSmall = smallScore + (cusum < 0 ? cusumFactor : -cusumFactor);
-        
-        return {
-            big: Math.max(0.1, Math.min(0.9, finalBig)),
-            small: Math.max(0.1, Math.min(0.9, finalSmall)),
-            bayesian,
-            markov,
-            cusum,
-            movingAvg
-        };
-    }
-}
-
-// ================================================================
-//  GAME RNG DEEP ANALYSIS
-// ================================================================
-class RNGAnalyzer {
-    constructor() {
-        this.numberFreq = {};
-        this.streakCount = 0;
-        this.currentStreak = '';
-        this.gaps = {};
-        this.lastSeen = {};
-    }
-
-    analyze(history) {
-        const recent = history.slice(-100);
-        const numbers = recent.map(h => Number(h.result)).filter(n => !isNaN(n));
-        
-        // Number Frequency
-        this.numberFreq = {};
-        for (const n of numbers) {
-            this.numberFreq[n] = (this.numberFreq[n] || 0) + 1;
-        }
-        
-        // Streak Analysis
-        let maxStreak = 0;
-        let currentStreak = 1;
-        for (let i = 1; i < numbers.length; i++) {
-            const isBig = numbers[i] >= 5;
-            const isPrevBig = numbers[i-1] >= 5;
-            if (isBig === isPrevBig) {
-                currentStreak++;
-                maxStreak = Math.max(maxStreak, currentStreak);
-            } else {
-                currentStreak = 1;
-            }
-        }
-        
-        // Gap Analysis
-        this.gaps = {};
-        this.lastSeen = {};
-        for (let i = 0; i < numbers.length; i++) {
-            const n = numbers[i];
-            if (this.lastSeen[n] !== undefined) {
-                const gap = i - this.lastSeen[n];
-                if (!this.gaps[n]) this.gaps[n] = [];
-                this.gaps[n].push(gap);
-            }
-            this.lastSeen[n] = i;
-        }
-        
-        return {
-            numberFreq: this.numberFreq,
-            maxStreak,
-            gaps: this.gaps,
-            totalNumbers: numbers.length
-        };
-    }
-}
+let consecutivePredictionType = null;
+let consecutivePredictionCount = 0;
+let lossStreakCount = 0;
 
 // ================================================================
 //  FETCH GAME RESULT
 // ================================================================
 async function fetchGameResult() {
-    try {
-        const resp = await fetch('https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                pageSize: 10, pageNo: 1, typeId: 1, language: 0,
-                random: '69b04bcd437f496c8c97e763af16ba03',
-                signature: '10BDFF509233B671B9DB6C661F1DC2F3',
-                timestamp: Math.floor(Date.now() / 1000)
-            })
-        });
-        const data = await resp.json();
-        if (data?.data?.list?.[0]) return data.data.list[0];
-        throw new Error('Empty');
-    } catch (_) {
-        return {
-            issueNumber: (2026072401 + Math.floor(Math.random() * 1000)).toString(),
-            number: Math.floor(Math.random() * 10).toString()
-        };
-    }
-}
-
-// ================================================================
-//  GEMINI AI PREDICTION (Original Logic)
-// ================================================================
-async function geminiPredict(history) {
-    const recent = history.filter(h => h.result !== null && h.result !== undefined)
-        .map(h => Number(h.result)).slice(0, 20);
-
-    if (recent.length < 3) {
-        return {
-            prediction: Math.random() > 0.5 ? 'BIG' : 'SMALL',
-            confidence: 82,
-            possible_number: Math.floor(Math.random() * 10),
-            calculation: 'Initializing initial sequence nodes via Bayesian prior estimation...'
-        };
-    }
-
-    const bigs = recent.filter(n => n >= 5).length;
-    const bias = ((bigs / recent.length) * 100).toFixed(1);
-
-    const promptText = `You are an elite Quantitative Risk Analyst AI. Evaluate this sequence: [${recent.join(', ')}]. Bias BIG: ${bias}%.
-Rules: 0-4 = SMALL, 5-9 = BIG.
-Return JSON ONLY (no markdown backticks):
-{
-  "prediction": "BIG or SMALL",
-  "confidence": 88,
-  "possible_number": 3,
-  "statistical_analysis": "Calculated CUSUM drift and standard variance deviation across observed points."
-}`;
-
-    try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: promptText }] }],
-                    generationConfig: { temperature: 0.2 }
-                })
-            }
-        );
-        const data = await response.json();
-        if (!data.candidates || !data.candidates[0].content) throw new Error('Invalid AI response');
-        let rawText = data.candidates[0].content.parts[0].text;
-        rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-        const aiData = JSON.parse(rawText);
-        return {
-            prediction: aiData.prediction || 'BIG',
-            confidence: parseInt(aiData.confidence) || 85,
-            possible_number: parseInt(aiData.possible_number) || Math.floor(Math.random() * 10),
-            calculation: aiData.statistical_analysis || 'Advanced regression pattern evaluated successfully.'
-        };
-    } catch (error) {
-        console.error('AI Error:', error);
-        return {
-            prediction: Math.random() > 0.5 ? 'BIG' : 'SMALL',
-            confidence: 80,
-            possible_number: Math.floor(Math.random() * 10),
-            calculation: 'Engaged algorithmic neural fallback due to network restriction.'
-        };
-    }
-}
-
-// ================================================================
-//  DEEP ANALYSIS SYSTEM (Combined)
-// ================================================================
-async function deepAnalysis(history) {
-    const mather = new MathematicalAnalyzer();
-    const rng = new RNGAnalyzer();
-    
-    // Get pattern insights from DB
-    const patterns = await db.getAllPatterns();
-    const allHistory = await db.getHistory(100);
-    
-    // Pattern Frequency Analysis
-    let patternInsight = null;
-    if (history.length >= 3) {
-        const lastThree = history.slice(0, 3).map(h => Number(h.result) >= 5 ? 'BIG' : 'SMALL');
-        if (lastThree.length === 3) {
-            const key = lastThree.join(',');
-            const data = await db.getPattern(key);
-            if (data && data.total >= 3) {
-                patternInsight = {
-                    key,
-                    total: data.total,
-                    nextBig: data.next_big,
-                    nextSmall: data.next_small,
-                    bigRatio: data.next_big / data.total,
-                    smallRatio: data.next_small / data.total
-                };
-            }
-        }
-    }
-    
-    // Mathematical analysis
-    const mathResult = mather.analyze(history);
-    
-    // RNG analysis
-    const rngResult = rng.analyze(history);
-    
-    // Combined prediction
-    const combinedBig = (mathResult.big * 0.4 + (patternInsight?.bigRatio || 0.5) * 0.3 + 0.3 * (rngResult.numberFreq[7] || 0.5));
-    const combinedSmall = (mathResult.small * 0.4 + (patternInsight?.smallRatio || 0.5) * 0.3 + 0.3 * (rngResult.numberFreq[2] || 0.5));
-    
-    const prediction = combinedBig > combinedSmall ? 'BIG' : 'SMALL';
-    const confidence = Math.round(Math.max(combinedBig, combinedSmall) * 100);
-    
-    // Find possible number
-    let possibleNumber = prediction === 'BIG' ? 7 : 2;
-    const range = prediction === 'BIG' ? [5,6,7,8,9] : [0,1,2,3,4];
-    let bestCount = -1;
-    for (const n of range) {
-        const count = rngResult.numberFreq[n] || 0;
-        if (count > bestCount) { bestCount = count; possibleNumber = n; }
-    }
-    
+  try {
+    const resp = await fetch('https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pageSize: 10, pageNo: 1, typeId: 1, language: 0,
+        random: '69b04bcd437f496c8c97e763af16ba03',
+        signature: '10BDFF509233B671B9DB6C661F1DC2F3',
+        timestamp: Math.floor(Date.now() / 1000)
+      })
+    });
+    const data = await resp.json();
+    if (data?.data?.list?.[0]) return data.data.list[0];
+    throw new Error('Empty');
+  } catch (_) {
     return {
-        prediction,
-        confidence: Math.min(92, Math.max(45, confidence)),
-        possible_number: possibleNumber,
-        mathematical: mathResult,
-        rng: rngResult,
-        pattern: patternInsight,
-        calculation: `Math: BIG=${(mathResult.big*100).toFixed(1)}% SMALL=${(mathResult.small*100).toFixed(1)}% | Pattern: ${patternInsight ? `${patternInsight.key} â†’ ${(patternInsight.bigRatio*100).toFixed(0)}%` : 'No pattern'} | RNG: ${Object.keys(rngResult.numberFreq).length} numbers analyzed`
+      issueNumber: (2026072401 + Math.floor(Math.random() * 1000)).toString(),
+      number: Math.floor(Math.random() * 10).toString()
     };
+  }
 }
 
 // ================================================================
-//  24/7 AUTO HISTORICAL ANALYSIS (CRON JOB)
+//  DEEP ANALYSIS ENGINE (Mathematical + Pattern + RNG Analysis)
 // ================================================================
-let isAnalyzing = false;
+function deepAnalysis(history) {
+  const valid = history.filter(h => h.result !== null && h.result !== undefined);
+  const recent = valid.slice(0, 30);
+  
+  if (recent.length < 5) {
+    return {
+      totalBig: 0,
+      totalSmall: 0,
+      freq: {},
+      trend: 'neutral',
+      consecutive: { big: 0, small: 0 },
+      mostFreq: null,
+      volatility: 0,
+      mean: 0,
+      median: 0,
+      stdDev: 0,
+      patternStrength: 0,
+      rngBias: 'neutral',
+      analysisNotes: 'Need at least 5 results for deep analysis.'
+    };
+  }
 
-async function autoHistoricalAnalysis() {
-    if (isAnalyzing) return;
-    isAnalyzing = true;
-    
-    try {
-        console.log('ðŸ”„ Auto Historical Analysis started...');
-        
-        // Fetch latest game result
-        const result = await fetchGameResult();
-        if (!result) return;
-        
-        const period = result.issueNumber;
-        const number = Number(result.number);
-        const type = number >= 5 ? 'BIG' : 'SMALL';
-        
-        // Check if already in DB
-        const history = await db.getHistory(1);
-        if (history.length > 0 && history[0].period === period) {
-            console.log('â­ï¸ Already recorded:', period);
-            return;
-        }
-        
-        // Save to history
-        await db.addHistory({
-            period,
-            prediction: 'AUTO',
-            possible_number: number,
-            result: number,
-            result_type: type,
-            status: 'RECORDED',
-            calculation: 'Auto-historical collection'
-        });
-        
-        // Update Pattern DB
-        const recentHistory = await db.getHistory(5);
-        const types = recentHistory.map(h => Number(h.result) >= 5 ? 'BIG' : 'SMALL');
-        if (types.length >= 4) {
-            const lastThree = types.slice(-4, -1);
-            if (lastThree.length === 3) {
-                const key = lastThree.join(',');
-                const isBig = type === 'BIG';
-                await db.updatePattern(key, 1, isBig ? 1 : 0, isBig ? 0 : 1);
-            }
-        }
-        
-        console.log('âœ… Auto analysis completed for period:', period);
-        
-    } catch (error) {
-        console.error('âŒ Auto analysis error:', error);
-    } finally {
-        isAnalyzing = false;
+  // --- Basic Statistics ---
+  const numbers = recent.map(r => Number(r.result));
+  const totalBig = numbers.filter(n => n >= 5).length;
+  const totalSmall = numbers.filter(n => n < 5).length;
+  
+  // Frequency
+  const freq = {};
+  numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
+  
+  // Most frequent
+  let maxF = 0, mostFreq = null;
+  for (const [n, c] of Object.entries(freq)) {
+    if (c > maxF) { maxF = c; mostFreq = Number(n); }
+  }
+
+  // --- Consecutive ---
+  const types = numbers.map(n => n >= 5 ? 'BIG' : 'SMALL');
+  let cb = 0, cs = 0;
+  for (let i = types.length - 1; i >= 0; i--) {
+    if (types[i] === 'BIG') { cb++; cs = 0; }
+    else { cs++; cb = 0; }
+    if (i === types.length - 1) continue;
+    if (types[i] !== types[types.length - 1]) break;
+  }
+
+  // --- Trend (Weighted Moving Average) ---
+  const weights = numbers.map((_, i) => i + 1);
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const weightedSum = numbers.reduce((sum, n, i) => sum + n * weights[i], 0);
+  const wma = weightedSum / totalWeight;
+  const simpleMean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
+  const trend = wma > simpleMean + 0.5 ? 'up' : wma < simpleMean - 0.5 ? 'down' : 'neutral';
+
+  // --- Volatility (Standard Deviation) ---
+  const mean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
+  const variance = numbers.reduce((sum, n) => sum + Math.pow(n - mean, 2), 0) / numbers.length;
+  const stdDev = Math.sqrt(variance);
+
+  // --- RNG Bias Detection ---
+  // Check if numbers are evenly distributed (0-9)
+  const expectedPerNumber = numbers.length / 10;
+  let chiSquare = 0;
+  for (let i = 0; i <= 9; i++) {
+    const observed = freq[i] || 0;
+    chiSquare += Math.pow(observed - expectedPerNumber, 2) / expectedPerNumber;
+  }
+  // Chi-square test (degrees of freedom = 9)
+  const isBiased = chiSquare > 16.92; // 95% confidence level
+  const rngBias = isBiased ? (mostFreq >= 5 ? 'BIG' : 'SMALL') : 'neutral';
+
+  // --- Pattern Strength ---
+  const uniquePatterns = new Set();
+  for (let i = 0; i < types.length - 2; i++) {
+    uniquePatterns.add(types.slice(i, i + 3).join(','));
+  }
+  const patternStrength = Math.min(100, (uniquePatterns.size / Math.pow(2, 3)) * 100);
+
+  // --- Analysis Notes ---
+  const notes = [];
+  if (cb >= 4) notes.push(`🔥 Strong BIG streak (${cb})`);
+  if (cs >= 4) notes.push(`❄️ Strong SMALL streak (${cs})`);
+  if (stdDev > 2.5) notes.push(`📊 High volatility (${stdDev.toFixed(2)})`);
+  if (isBiased) notes.push(`🎯 RNG Bias detected: ${rngBias}`);
+  if (patternStrength > 60) notes.push(`🧩 Strong pattern: ${patternStrength.toFixed(0)}%`);
+  if (notes.length === 0) notes.push('⚖️ Balanced distribution');
+
+  return {
+    totalBig,
+    totalSmall,
+    freq,
+    trend,
+    consecutive: { big: cb, small: cs },
+    mostFreq,
+    volatility: stdDev,
+    mean: mean,
+    median: numbers.sort((a, b) => a - b)[Math.floor(numbers.length / 2)],
+    stdDev,
+    patternStrength,
+    rngBias,
+    analysisNotes: notes.join(' | ')
+  };
+}
+
+// ================================================================
+//  ADVANCED AI PREDICT (Deep Analysis + Pattern DB + Mathematical)
+// ================================================================
+async function advancedAIPredict(history) {
+  // 1. Get Pattern Insight from DB
+  const patternDB = await db.getAllPatterns();
+  
+  // 2. Deep Analysis
+  const analysis = deepAnalysis(history);
+  
+  // 3. Build scoring based on multiple factors
+  let bigScore = 50;
+  let smallScore = 50;
+  const reasons = [];
+
+  // Factor 1: Trend (Weighted Moving Average)
+  if (analysis.trend === 'up') {
+    bigScore += 8;
+    smallScore -= 4;
+    reasons.push(`📈 Trend: Up (WMA)`);
+  } else if (analysis.trend === 'down') {
+    smallScore += 8;
+    bigScore -= 4;
+    reasons.push(`📉 Trend: Down (WMA)`);
+  }
+
+  // Factor 2: Consecutive Streak (Mean Reversion)
+  if (analysis.consecutive.big >= 3) {
+    smallScore += 16;
+    bigScore -= 8;
+    reasons.push(`🔄 Mean Reversion (BIG x${analysis.consecutive.big})`);
+  } else if (analysis.consecutive.small >= 3) {
+    bigScore += 16;
+    smallScore -= 8;
+    reasons.push(`🔄 Mean Reversion (SMALL x${analysis.consecutive.small})`);
+  }
+
+  // Factor 3: RNG Bias
+  if (analysis.rngBias === 'BIG') {
+    bigScore += 10;
+    smallScore -= 5;
+    reasons.push(`🎯 RNG Bias: BIG (Chi-square test)`);
+  } else if (analysis.rngBias === 'SMALL') {
+    smallScore += 10;
+    bigScore -= 5;
+    reasons.push(`🎯 RNG Bias: SMALL (Chi-square test)`);
+  }
+
+  // Factor 4: Pattern DB Insight (Global Historical)
+  const lastThree = history.slice(0, 3).map(h => Number(h.result)).filter(n => !isNaN(n));
+  const lastThreeTypes = lastThree.map(n => n >= 5 ? 'BIG' : 'SMALL');
+  if (lastThreeTypes.length === 3) {
+    const key = lastThreeTypes.join(',');
+    const data = patternDB[key];
+    if (data && data.total >= 3) {
+      const bigRatio = data.nextBig / data.total;
+      const smallRatio = data.nextSmall / data.total;
+      if (bigRatio > 0.65) {
+        const boost = Math.min(25, bigRatio * 30);
+        bigScore += boost;
+        smallScore -= boost * 0.5;
+        reasons.push(`🌐 Global DB: ${key} → BIG ${(bigRatio*100).toFixed(0)}% (${data.total} occ)`);
+      } else if (smallRatio > 0.65) {
+        const boost = Math.min(25, smallRatio * 30);
+        smallScore += boost;
+        bigScore -= boost * 0.5;
+        reasons.push(`🌐 Global DB: ${key} → SMALL ${(smallRatio*100).toFixed(0)}% (${data.total} occ)`);
+      }
     }
+  }
+
+  // Factor 5: Most Frequent Number (Hot Number)
+  if (analysis.mostFreq !== null) {
+    if (analysis.mostFreq >= 5) {
+      bigScore += 4;
+      reasons.push(`🔥 Hot number: ${analysis.mostFreq} (${analysis.freq[analysis.mostFreq]}x)`);
+    } else {
+      smallScore += 4;
+      reasons.push(`🔥 Hot number: ${analysis.mostFreq} (${analysis.freq[analysis.mostFreq]}x)`);
+    }
+  }
+
+  // Factor 6: Volatility adjustment
+  if (analysis.volatility > 2.5) {
+    // High volatility - reduce confidence
+    const penalty = Math.min(10, analysis.volatility * 2);
+    bigScore -= penalty / 2;
+    smallScore -= penalty / 2;
+    reasons.push(`📊 High volatility (${analysis.volatility.toFixed(2)})`);
+  }
+
+  // Factor 7: Prediction Rotation (Avoid repeating)
+  if (consecutivePredictionType === 'BIG') {
+    const penalty = Math.min(16, consecutivePredictionCount * 4);
+    bigScore -= penalty;
+    smallScore += 6;
+    reasons.push(`🔄 Rotation: avoid BIG (${consecutivePredictionCount}x)`);
+  } else if (consecutivePredictionType === 'SMALL') {
+    const penalty = Math.min(16, consecutivePredictionCount * 4);
+    smallScore -= penalty;
+    bigScore += 6;
+    reasons.push(`🔄 Rotation: avoid SMALL (${consecutivePredictionCount}x)`);
+  }
+
+  // Factor 8: Loss Defense
+  if (lossStreakCount >= 2) {
+    if (consecutivePredictionType === 'BIG') {
+      smallScore += 20;
+      bigScore -= 12;
+      reasons.push(`🛡️ Loss defense: flip from BIG`);
+    } else if (consecutivePredictionType === 'SMALL') {
+      bigScore += 20;
+      smallScore -= 12;
+      reasons.push(`🛡️ Loss defense: flip from SMALL`);
+    }
+  }
+
+  // Final scoring with noise
+  bigScore += (Math.random() * 8) - 4;
+  smallScore += (Math.random() * 8) - 4;
+  bigScore = Math.max(10, Math.min(90, bigScore));
+  smallScore = Math.max(10, Math.min(90, smallScore));
+
+  let predictionType = bigScore > smallScore ? 'BIG' : 'SMALL';
+  let confidence = Math.round(Math.max(bigScore, smallScore) * 0.85 + 15);
+  confidence = Math.min(94, Math.max(45, confidence));
+
+  // Possible Number
+  const range = predictionType === 'BIG' ? [5, 6, 7, 8, 9] : [0, 1, 2, 3, 4];
+  let bestNum = null, bestCount = -1;
+  for (const n of range) {
+    const c = analysis.freq[n] || 0;
+    if (c > bestCount) { bestCount = c; bestNum = n; }
+  }
+  if (bestNum === null || bestCount === 0) {
+    const mfn = analysis.mostFreq;
+    if (mfn !== null && range.includes(mfn)) bestNum = mfn;
+    else bestNum = predictionType === 'BIG' ? 7 : 2;
+  }
+
+  // Update tracking
+  if (consecutivePredictionType === predictionType) {
+    consecutivePredictionCount++;
+  } else {
+    consecutivePredictionType = predictionType;
+    consecutivePredictionCount = 1;
+  }
+
+  const logLines = [
+    `🧮 Deep Analysis: ${analysis.analysisNotes}`,
+    `📊 Volatility: ${analysis.volatility.toFixed(2)} | RNG Bias: ${analysis.rngBias}`,
+    `📈 BIG:${analysis.totalBig} / SMALL:${analysis.totalSmall} | Trend: ${analysis.trend}`,
+    `🧠 Scores: BIG=${Math.round(bigScore)} SMALL=${Math.round(smallScore)}`,
+    `🎯 Prediction: ${predictionType} | Possible: ${bestNum} | Confidence: ${confidence}%`,
+    `📌 ${reasons.join(' | ')}`
+  ];
+
+  return {
+    prediction: predictionType,
+    confidence: confidence,
+    possible_number: bestNum,
+    calculation: logLines.join(' | '),
+    logLines,
+    analysis: analysis
+  };
 }
 
-// Schedule auto analysis every 15 minutes
-if (process.env.NODE_ENV !== 'development') {
-    cron.schedule('*/15 * * * *', autoHistoricalAnalysis);
-    console.log('â° Auto Historical Analysis scheduled every 15 minutes');
+// ================================================================
+//  BACKGROUND CRON JOB (Runs every 60 seconds - 24/7)
+// ================================================================
+async function backgroundProcessor() {
+  console.log(`[${new Date().toISOString()}] 🔄 Background processing started...`);
+  
+  try {
+    // 1. Fetch latest result
+    const result = await fetchGameResult();
+    if (!result) return;
+
+    // 2. Check if already processed
+    const existing = await db.getHistory(5);
+    const lastPeriod = existing.length > 0 ? existing[0].period : null;
+    if (lastPeriod === result.issueNumber) {
+      console.log(`[${new Date().toISOString()}] ⏭️ Period ${result.issueNumber} already processed`);
+      return;
+    }
+
+    const actualNumber = Number(result.number);
+    const actualType = actualNumber >= 5 ? 'BIG' : 'SMALL';
+
+    // 3. Get last 20 history for analysis
+    const history = await db.getHistoryForAnalysis(25);
+    
+    // 4. Check if we have a pending prediction to resolve
+    let lastPrediction = null;
+    let lastPossibleNumber = null;
+    if (history.length > 0 && history[0].status === 'Pending') {
+      lastPrediction = history[0].prediction;
+      lastPossibleNumber = history[0].possible_number;
+      
+      const matched = (actualType === lastPrediction || actualNumber == lastPossibleNumber);
+      
+      // Update the pending record with actual result
+      // We need to update the specific record
+      // For now, we'll add it as resolved
+      await db.updateHistoryResult(history[0].id, actualNumber, actualType, matched ? 'WIN' : 'LOSS');
+      
+      console.log(`[${new Date().toISOString()}] 📝 Resolved: ${history[0].period} → ${actualType} (${matched ? 'WIN' : 'LOSS'})`);
+    }
+
+    // 5. Generate new prediction for next period
+    const aiDecision = await advancedAIPredict(history);
+    
+    // 6. Save prediction to history
+    const nextPeriod = (BigInt(result.issueNumber) + 1n).toString();
+    await db.addHistory({
+      period: nextPeriod,
+      prediction: aiDecision.prediction,
+      possible_number: aiDecision.possible_number,
+      result: null,
+      result_type: null,
+      status: 'Pending',
+      calculation: aiDecision.calculation
+    });
+
+    console.log(`[${new Date().toISOString()}] ✅ Saved prediction for period ${nextPeriod}: ${aiDecision.prediction}`);
+
+    // 7. Update Pattern DB with the actual result
+    if (history.length >= 3) {
+      const recentHistory = await db.getHistoryForAnalysis(5);
+      const sorted = recentHistory.reverse();
+      const types = sorted.map(h => Number(h.result) >= 5 ? 'BIG' : 'SMALL');
+      
+      if (types.length >= 4) {
+        const currentType = actualType;
+        const lastThree = types.slice(-4, -1);
+        if (lastThree.length === 3) {
+          const key = lastThree.join(',');
+          const isBig = currentType === 'BIG';
+          await db.updatePattern(key, 1, isBig ? 1 : 0, isBig ? 0 : 1);
+          console.log(`[${new Date().toISOString()}] 📊 Pattern DB updated: ${key} → ${currentType}`);
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] ❌ Background error:`, error.message);
+  }
 }
 
 // ================================================================
@@ -433,98 +408,100 @@ if (process.env.NODE_ENV !== 'development') {
 
 // 1. Get Game Result
 app.get('/api/game-result', async (req, res) => {
-    try { const result = await fetchGameResult(); res.json(result); }
-    catch (e) { res.status(500).json({ error: 'Failed to fetch' }); }
+  try { const result = await fetchGameResult(); res.json(result); }
+  catch (e) { res.status(500).json({ error: 'Failed to fetch' }); }
 });
 
-// 2. Get Prediction with Deep Analysis
+// 2. Get Prediction (for frontend)
 app.post('/api/predict', async (req, res) => {
-    try {
-        const { history } = req.body;
-        const formatted = history.map(h => ({
-            period: h.period,
-            prediction: h.prediction,
-            result: h.result !== '-' ? Number(h.result) : null,
-            resultType: h.resultType,
-            resultStatus: h.resultStatus,
-            calculation: h.calculation
-        }));
-        
-        // Deep Analysis
-        const deepResult = await deepAnalysis(formatted);
-        
-        // Gemini AI (Original)
-        const geminiResult = await geminiPredict(formatted);
-        
-        // Combine results (Deep Analysis 60% + Gemini 40%)
-        const finalPrediction = deepResult.confidence > geminiResult.confidence ? 
-            deepResult.prediction : geminiResult.prediction;
-        const finalConfidence = Math.round((deepResult.confidence * 0.6 + geminiResult.confidence * 0.4));
-        const finalNumber = deepResult.possible_number || geminiResult.possible_number;
-        
-        // Build detailed calculation log
-        const logLines = [
-            'ðŸ§® DEEP ANALYSIS SYSTEM v2.0',
-            `ðŸ“Š Mathematical: BIG=${(deepResult.mathematical.big*100).toFixed(1)}% SMALL=${(deepResult.mathematical.small*100).toFixed(1)}%`,
-            `ðŸŽ¯ Pattern DB: ${deepResult.pattern ? `${deepResult.pattern.key} â†’ ${(deepResult.pattern.bigRatio*100).toFixed(0)}%` : 'No pattern found'}`,
-            `ðŸŽ² RNG Analysis: ${deepResult.rng.totalNumbers} numbers | Max streak: ${deepResult.rng.maxStreak}`,
-            `ðŸ¤– Gemini AI: ${geminiResult.prediction} @ ${geminiResult.confidence}%`,
-            `ðŸ“ˆ Final Decision: ${finalPrediction} (${finalConfidence}%) | Possible: ${finalNumber}`
-        ];
-        
-        res.json({
-            prediction: finalPrediction,
-            confidence: finalConfidence,
-            possible_number: finalNumber,
-            deep_analysis: deepResult,
-            gemini: geminiResult,
-            calculation: logLines.join(' | '),
-            logLines: logLines
-        });
-        
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ error: 'Prediction failed' });
-    }
+  try {
+    const { history } = req.body;
+    const formatted = history.map(h => ({
+      period: h.period,
+      prediction: h.prediction,
+      result: h.result !== '-' ? Number(h.result) : null,
+      resultType: h.resultType,
+      status: h.resultStatus,
+      calculation: h.calculation
+    }));
+    const result = await advancedAIPredict(formatted);
+    res.json(result);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Prediction failed' }); }
 });
 
-// 3. Submit Result (Save to History)
+// 3. Submit Result (from frontend)
 app.post('/api/submit-result', async (req, res) => {
-    try {
-        const { period, prediction, possible_number, result, result_type, status, calculation } = req.body;
-        await db.addHistory({
-            period,
-            prediction,
-            possible_number,
-            result,
-            result_type,
-            status,
-            calculation
-        });
-        
-        // Update Pattern DB
-        if (result !== null && result !== undefined && status !== 'Pending') {
-            const recentHistory = await db.getHistory(5);
-            const types = recentHistory.map(h => Number(h.result) >= 5 ? 'BIG' : 'SMALL');
-            if (types.length >= 4) {
-                const currentType = Number(result) >= 5 ? 'BIG' : 'SMALL';
-                const lastThree = types.slice(-4, -1);
-                if (lastThree.length === 3) {
-                    const key = lastThree.join(',');
-                    const isBig = currentType === 'BIG';
-                    await db.updatePattern(key, 1, isBig ? 1 : 0, isBig ? 0 : 1);
-                }
-            }
-        }
-        
-        res.json({ success: true });
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ error: 'Failed to save' });
-    }
+  try {
+    const { period, prediction, possible_number, result, result_type, status, calculation } = req.body;
+    await db.addHistory({
+      period, prediction, possible_number,
+      result, result_type, status, calculation
+    });
+    res.json({ success: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to save' }); }
 });
 
-// 4. Get History (Default: 100, Max: 3000)
+// 4. Get History
 app.get('/api/history', async (req, res) => {
-    try {
-        cons
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const history = await db.getHistory(limit);
+    res.json(history);
+  } catch (e) { res.status(500).json({ error: 'Failed to get history' }); }
+});
+
+// 5. Get Pattern Stats
+app.get('/api/pattern-stats', async (req, res) => {
+  try {
+    const patterns = await db.getAllPatterns();
+    const keys = Object.keys(patterns);
+    let totalOcc = 0;
+    keys.forEach(k => totalOcc += patterns[k].total);
+    res.json({ count: keys.length, totalOcc });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// 6. Clear ALL (History + Patterns) - Admin only
+app.post('/api/clear-all', async (req, res) => {
+  try {
+    await db.clearAllHistory();
+    await db.clearPatterns();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// 7. Clear ONLY Current History (Keep Pattern DB)
+app.post('/api/clear-history-only', async (req, res) => {
+  try {
+    await db.clearAllHistory();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// 8. Test API
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'BLZ-AI Server running',
+    gemini_key_set: !!GEMINI_KEY,
+    background_running: true
+  });
+});
+
+// ================================================================
+//  START SERVER + BACKGROUND WORKER
+// ================================================================
+
+// Run once immediately on startup
+setTimeout(() => {
+  backgroundProcessor();
+}, 5000);
+
+// Run every 60 seconds (24/7)
+setInterval(backgroundProcessor, 60000);
+
+app.listen(PORT, () => {
+  console.log(`🚀 BLZ-AI Server running on port ${PORT}`);
+  console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
+  console.log(`⏰ Background processor running every 60 seconds (24/7)`);
+});
