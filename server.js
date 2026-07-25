@@ -5,15 +5,35 @@ const fetch = require('node-fetch');
 const db = require('./db');
 
 const app = express();
-const PORT = process.env.PPORT || 3000;
+const PORT = process.env.PORT || 3000;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-app.use(cors());
+// ============================================================
+//  CORS - ကျယ်ကျယ်ပြန့်ပြန့် ဖွင့်ထားပါ (Render အတွက်)
+// ============================================================
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 app.use(express.static('public'));
 
 // ============================================================
-//  HELPER: FETCH GAME RESULT
+//  TEST API (Server အလုပ်လုပ်လား စစ်ဖို့)
+// ============================================================
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'BLZ-AI Server is running!',
+    timestamp: new Date().toISOString(),
+    gemini_key_set: !!GEMINI_KEY
+  });
+});
+
+// ============================================================
+//  FETCH GAME RESULT
 // ============================================================
 async function fetchGameResult() {
   try {
@@ -42,9 +62,8 @@ async function fetchGameResult() {
 }
 
 // ============================================================
-//  AI LOGIC (PORTED & UPGRADED WITH GLOBAL DB)
+//  DB HELPERS
 // ============================================================
-
 async function getPatternInsight(lastThree) {
   if (lastThree.length < 3) return null;
   const key = lastThree.join(',');
@@ -163,7 +182,7 @@ async function predictFromHistory(history, consecutiveType, consecutiveCount, lo
       reasons.push('Loss defense (flip)'); }
   }
 
-  // 5. GLOBAL PATTERN DB (UNLIMITED ADVANTAGE)
+  // 5. GLOBAL PATTERN DB
   const lastThreeTypes = analysis.recent.slice(0, 3).map(r => Number(r.result) >= 5 ? 'BIG' : 'SMALL');
   if (lastThreeTypes.length === 3) {
     const insight = await getPatternInsight(lastThreeTypes);
@@ -208,8 +227,9 @@ async function predictFromHistory(history, consecutiveType, consecutiveCount, lo
     }
   }
 
+  const allPatterns = await db.getAllPatterns();
   const logLines = [
-    `📊 Analyzed ${analysis.recent.length} recent results (Global DB: ${Object.keys(await db.getAllPatterns()).length} patterns)`,
+    `📊 Analyzed ${analysis.recent.length} recent results (Global DB: ${Object.keys(allPatterns).length} patterns)`,
     `📈 BIG:${totalBig} / SMALL:${totalSmall}  |  Trend: ${trend}`,
     `🔢 Hot number: ${mostFreq !== null ? mostFreq : '—'}`,
     `🧠 Scores: BIG=${Math.round(bigScore)} SMALL=${Math.round(smallScore)}`,
@@ -304,7 +324,11 @@ app.post('/api/clear-all', async (req, res) => {
     res.json({ success: true }); } catch (e) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// ============================================================
+//  START SERVER
+// ============================================================
 app.listen(PORT, () => {
   console.log(`🚀 BLZ-AI Server running on http://localhost:${PORT}`);
   console.log(`📦 Pattern DB: Unlimited (Centralized SQLite)`);
+  console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
 });
