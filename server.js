@@ -13,7 +13,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ================================================================
-//  FETCH GAME RESULT (Original Logic)
+//  FETCH GAME RESULT
 // ================================================================
 async function fetchGameResult() {
   try {
@@ -39,7 +39,7 @@ async function fetchGameResult() {
 }
 
 // ================================================================
-//  ORIGINAL AI PREDICTION LOGIC (Ported from HTML)
+//  ORIGINAL AI PREDICTION LOGIC (ဒီမှာတင် သိမ်းထားတယ်)
 // ================================================================
 async function advancedAIPredict(history) {
   const recent = history.filter(h => h.result !== null && h.result !== undefined)
@@ -108,17 +108,11 @@ Return JSON ONLY (no markdown backticks):
 //  API ROUTES
 // ================================================================
 
-// 1. Get Game Result (Proxy)
 app.get('/api/game-result', async (req, res) => {
-  try {
-    const result = await fetchGameResult();
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch' });
-  }
+  try { const result = await fetchGameResult(); res.json(result); }
+  catch (e) { res.status(500).json({ error: 'Failed to fetch' }); }
 });
 
-// 2. Get Prediction (Uses Original AI Logic)
 app.post('/api/predict', async (req, res) => {
   try {
     const { history } = req.body;
@@ -132,72 +126,49 @@ app.post('/api/predict', async (req, res) => {
     }));
     const result = await advancedAIPredict(formatted);
     res.json(result);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Prediction failed' });
-  }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Prediction failed' }); }
 });
 
-// 3. Submit Result (Save to DB)
 app.post('/api/submit-result', async (req, res) => {
   try {
-    const { period, prediction, opposite_number, result, result_type, status, calculation } = req.body;
+    const { period, prediction, possible_number, result, result_type, status, calculation } = req.body;
     await db.addHistory({
-      period,
-      prediction,
-      possible_number: opposite_number,
-      result,
-      result_type,
-      status,
-      calculation
+      period, prediction, possible_number,
+      result, result_type, status, calculation
     });
     res.json({ success: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Failed to save' });
-  }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to save' }); }
 });
 
-// 4. Get History
 app.get('/api/history', async (req, res) => {
-  try {
-    const history = await db.getHistory(100);
-    res.json(history);
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to get history' });
-  }
+  try { const history = await db.getHistory(3000); res.json(history); }
+  catch (e) { res.status(500).json({ error: 'Failed to get history' }); }
 });
 
-// 5. Pattern Stats
-app.get('/api/pattern-stats', async (req, res) => {
+// NEW: Clear ONLY current history (keep pattern DB)
+app.post('/api/clear-current-history', async (req, res) => {
   try {
-    const patterns = await db.getAllPatterns();
-    const keys = Object.keys(patterns);
-    let totalOcc = 0;
-    keys.forEach(k => totalOcc += patterns[k].total);
-    res.json({ count: keys.length, totalOcc });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed' });
-  }
+    await db.clearAllHistory();
+    res.json({ success: true, message: 'Current history cleared. Pattern DB preserved.' });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// 6. Clear All
+// Keep this for full reset if needed (but we won't use it for pattern DB)
 app.post('/api/clear-all', async (req, res) => {
   try {
     await db.clearAllHistory();
-    await db.clearPatterns();
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed' });
-  }
+    // DO NOT clear patterns - preserve historical data
+    res.json({ success: true, message: 'History cleared. Pattern DB preserved.' });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// 7. Test API
 app.get('/api/test', (req, res) => {
-  res.json({ status: 'ok', message: 'BLZ-AI Server running', gemini_key_set: !!GEMINI_KEY });
+  res.json({ status: 'ok', message: 'BLZ-AI Server v3.0 running', gemini_key_set: !!GEMINI_KEY });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 BLZ-AI Server running on port ${PORT}`);
+  console.log(`🚀 BLZ-AI Server v3.0 running on port ${PORT}`);
   console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
+  console.log(`📊 Deep Analysis Engine: 24/7 Active`);
+  console.log(`📦 Pattern DB: Unlimited (3000+ records)`);
 });
