@@ -1,7 +1,7 @@
 {
   "name": "blz-ai-backend",
   "version": "2.3.0",
-  "description": "Server-side AI prediction engine with centralized unlimited pattern DB",
+  "description": "Server-side AI prediction engine with unlimited pattern DB",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
