@@ -17,7 +17,7 @@ db.serialize(() => {
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // Pattern DB - Unlimited (3000+)
+  // Pattern DB - Unlimited
   db.run(`CREATE TABLE IF NOT EXISTS patterns (
     pattern_key TEXT PRIMARY KEY,
     total INTEGER DEFAULT 0,
@@ -31,6 +31,7 @@ db.serialize(() => {
 });
 
 const dbOps = {
+  // === PATTERN DB ===
   getPattern: (key) => {
     return new Promise((resolve, reject) => {
       db.get('SELECT * FROM patterns WHERE pattern_key = ?', [key], (err, row) => {
@@ -71,6 +72,13 @@ const dbOps = {
       });
     });
   },
+  clearPatterns: () => {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM patterns', (err) => { if (err) reject(err); resolve(); });
+    });
+  },
+
+  // === HISTORY ===
   addHistory: (entry) => {
     return new Promise((resolve, reject) => {
       const { period, prediction, possible_number, result, result_type, status, calculation } = entry;
@@ -110,19 +118,6 @@ const dbOps = {
   clearAllHistory: () => {
     return new Promise((resolve, reject) => {
       db.run('DELETE FROM history', (err) => { if (err) reject(err); resolve(); });
-    });
-  },
-  clearPatterns: () => {
-    return new Promise((resolve, reject) => {
-      db.run('DELETE FROM patterns', (err) => { if (err) reject(err); resolve(); });
-    });
-  },
-  getTotalHistoryCount: () => {
-    return new Promise((resolve, reject) => {
-      db.get('SELECT COUNT(*) as count FROM history', (err, row) => {
-        if (err) reject(err);
-        resolve(row ? row.count : 0);
-      });
     });
   }
 };
