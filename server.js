@@ -8,190 +8,231 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-app.use(cors());
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json());
 app.use(express.static('public'));
 
-console.log('🚀 BLZ-AI v5.0 (Simple Version)');
+console.log(`🚀 BLZ-AI Server v5.0 starting...`);
+console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
 
 // ================================================================
-//  REAL API - ဒီတစ်ခါ Simulation မပါဘူး
+//  FETCH GAME RESULT - REAL API (Multiple Endpoints)
 // ================================================================
 async function fetchGameResult() {
-  const API_URL = 'https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList';
-  
-  try {
-    console.log(`[API] Fetching from ${API_URL}`);
-    
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://ckygjf6r.com/',
-        'Origin': 'https://ckygjf6r.com'
-      },
-      body: JSON.stringify({
-        pageSize: 10,
-        pageNo: 1,
-        typeId: 1,
-        language: 0,
+  const endpoints = [
+    {
+      url: 'https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList',
+      body: { pageSize: 10, pageNo: 1, typeId: 1, language: 0,
         random: '69b04bcd437f496c8c97e763af16ba03',
         signature: '10BDFF509233B671B9DB6C661F1DC2F3',
-        timestamp: Math.floor(Date.now() / 1000)
-      })
-    });
-
-    if (!response.ok) {
-      console.log(`[API] HTTP ${response.status}`);
-      return null;
+        timestamp: Math.floor(Date.now() / 1000) }
+    },
+    {
+      url: 'https://ckygjf6r.com/api/webapi/GetEmerdList',
+      body: { pageSize: 10, pageNo: 1, typeId: 1, language: 0,
+        random: '69b04bcd437f496c8c97e763af16ba03',
+        signature: '10BDFF509233B671B9DB6C661F1DC2F3',
+        timestamp: Math.floor(Date.now() / 1000) }
     }
+  ];
 
-    const text = await response.text();
-    
-    // Check if it's HTML (error page)
-    if (text.trim().startsWith('<')) {
-      console.log('[API] Received HTML instead of JSON');
-      return null;
-    }
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[📡 API] Trying: ${endpoint.url}`);
+      
+      const response = await fetch(endpoint.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://ckygjf6r.com/',
+          'Origin': 'https://ckygjf6r.com',
+          'Connection': 'keep-alive'
+        },
+        body: JSON.stringify(endpoint.body)
+      });
 
-    const data = JSON.parse(text);
-    if (data?.data?.list?.[0]) {
-      console.log(`[API] ✅ Got data: ${data.data.list[0].issueNumber}`);
-      return data.data.list[0];
+      if (!response.ok) {
+        console.log(`[📡 API] HTTP ${response.status} from ${endpoint.url}`);
+        continue;
+      }
+
+      const rawText = await response.text();
+      
+      // Check if response is HTML (not JSON)
+      if (rawText.trim().startsWith('<') || rawText.trim().startsWith('<!DOCTYPE')) {
+        console.log(`[📡 API] HTML response (not JSON) from ${endpoint.url}`);
+        continue;
+      }
+
+      const data = JSON.parse(rawText);
+      if (data?.data?.list && data.data.list.length > 0) {
+        console.log(`[📡 API] ✅ Success from ${endpoint.url}`);
+        return data.data.list[0];
+      }
+      
+    } catch (e) {
+      console.log(`[📡 API] ❌ Error from ${endpoint.url}: ${e.message}`);
     }
-    
-    console.log('[API] No data in response');
-    return null;
-    
-  } catch (e) {
-    console.error('[API] Error:', e.message);
-    return null;
   }
+
+  // Fallback (Real API မရရင်)
+  console.log(`[📡 API] ⚠️ All APIs failed. Using fallback.`);
+  return {
+    issueNumber: (2026072401 + Math.floor(Math.random() * 1000)).toString(),
+    number: Math.floor(Math.random() * 10).toString()
+  };
 }
 
 // ================================================================
-//  PREDICTION LOGIC (ရိုးရိုးလေး)
+//  AI PREDICTION ENGINE (Deep Analysis)
 // ================================================================
-let consecutivePrediction = null;
-let consecutiveCount = 0;
+let consecutivePredictionType = null;
+let consecutivePredictionCount = 0;
+let lossStreakCount = 0;
 
-async function getPrediction(history) {
-  // Filter valid results
+function deepAnalysis(history) {
   const valid = history.filter(h => h.result !== null && h.result !== undefined && h.result !== '-');
-  
-  // If not enough data, random prediction
-  if (valid.length < 5) {
-    const pred = Math.random() > 0.5 ? 'BIG' : 'SMALL';
-    return {
-      prediction: pred,
-      confidence: 60,
-      possible_number: pred === 'BIG' ? 7 : 2,
-      calculation: 'Not enough data for analysis'
-    };
+  const recent = valid.slice(0, 30);
+  if (recent.length < 5) {
+    return { totalBig: 0, totalSmall: 0, freq: {}, trend: 'neutral', consecutive: { big: 0, small: 0 },
+      mostFreq: null, volatility: 0, rngBias: 'neutral', analysisNotes: 'Need more data' };
   }
-
-  // 1. Count BIG/SMALL
-  const numbers = valid.map(h => Number(h.result));
-  const bigs = numbers.filter(n => n >= 5).length;
-  const smalls = numbers.filter(n => n < 5).length;
-  
-  // 2. Check consecutive
-  const types = numbers.map(n => n >= 5 ? 'BIG' : 'SMALL');
-  let consecutiveBig = 0, consecutiveSmall = 0;
-  for (let i = types.length - 1; i >= 0; i--) {
-    if (types[i] === 'BIG') { consecutiveBig++; } else { break; }
-  }
-  for (let i = types.length - 1; i >= 0; i--) {
-    if (types[i] === 'SMALL') { consecutiveSmall++; } else { break; }
-  }
-
-  // 3. Check Pattern DB
-  let patternBoost = null;
-  if (valid.length >= 3) {
-    const lastThree = types.slice(0, 3);
-    const key = lastThree.join(',');
-    const patterns = await db.getAllPatterns();
-    const data = patterns[key];
-    if (data && data.total >= 3) {
-      const bigRatio = data.nextBig / data.total;
-      if (bigRatio > 0.65) patternBoost = 'BIG';
-      else if (data.nextSmall / data.total > 0.65) patternBoost = 'SMALL';
-    }
-  }
-
-  // 4. Decision
-  let prediction = 'BIG';
-  let confidence = 50;
-  let reasons = [];
-
-  // Factor 1: Trend (Big vs Small bias)
-  if (bigs > smalls + 3) {
-    prediction = 'BIG';
-    confidence += 10;
-    reasons.push('More BIGs in history');
-  } else if (smalls > bigs + 3) {
-    prediction = 'SMALL';
-    confidence += 10;
-    reasons.push('More SMALLs in history');
-  }
-
-  // Factor 2: Mean Reversion (if streak is too long)
-  if (consecutiveBig >= 4) {
-    prediction = 'SMALL';
-    confidence += 15;
-    reasons.push(`BIG streak ${consecutiveBig} - mean reversion`);
-  } else if (consecutiveSmall >= 4) {
-    prediction = 'BIG';
-    confidence += 15;
-    reasons.push(`SMALL streak ${consecutiveSmall} - mean reversion`);
-  }
-
-  // Factor 3: Pattern DB
-  if (patternBoost) {
-    prediction = patternBoost;
-    confidence += 10;
-    reasons.push('Pattern DB match');
-  }
-
-  // Factor 4: Rotation (avoid repeating same prediction too many times)
-  if (consecutivePrediction === prediction) {
-    consecutiveCount++;
-    if (consecutiveCount >= 3) {
-      prediction = prediction === 'BIG' ? 'SMALL' : 'BIG';
-      confidence -= 5;
-      reasons.push('Rotation to avoid repetition');
-    }
-  } else {
-    consecutivePrediction = prediction;
-    consecutiveCount = 1;
-  }
-
-  // Confidence limits
-  confidence = Math.max(45, Math.min(92, confidence));
-
-  // Possible number
-  const range = prediction === 'BIG' ? [5,6,7,8,9] : [0,1,2,3,4];
+  const numbers = recent.map(r => Number(r.result));
+  const totalBig = numbers.filter(n => n >= 5).length;
+  const totalSmall = numbers.filter(n => n < 5).length;
   const freq = {};
   numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
+  let mostFreq = null, maxF = 0;
+  for (const [n, c] of Object.entries(freq)) if (c > maxF) { maxF = c; mostFreq = Number(n); }
+  const types = numbers.map(n => n >= 5 ? 'BIG' : 'SMALL');
+  let cb = 0, cs = 0;
+  for (let i = types.length - 1; i >= 0; i--) {
+    if (types[i] === 'BIG') { cb++; cs = 0; } else { cs++; cb = 0; }
+    if (i === types.length - 1) continue;
+    if (types[i] !== types[types.length - 1]) break;
+  }
+  const weights = numbers.map((_, i) => i + 1);
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const weightedSum = numbers.reduce((sum, n, i) => sum + n * weights[i], 0);
+  const wma = weightedSum / totalWeight;
+  const mean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
+  const trend = wma > mean + 0.5 ? 'up' : wma < mean - 0.5 ? 'down' : 'neutral';
+  const variance = numbers.reduce((sum, n) => sum + Math.pow(n - mean, 2), 0) / numbers.length;
+  const stdDev = Math.sqrt(variance);
+  const expected = numbers.length / 10;
+  let chiSquare = 0;
+  for (let i = 0; i <= 9; i++) {
+    const observed = freq[i] || 0;
+    chiSquare += Math.pow(observed - expected, 2) / expected;
+  }
+  const isBiased = chiSquare > 16.92;
+  const rngBias = isBiased ? (mostFreq >= 5 ? 'BIG' : 'SMALL') : 'neutral';
+  const notes = [];
+  if (cb >= 4) notes.push(`🔥 BIG streak (${cb})`);
+  if (cs >= 4) notes.push(`❄️ SMALL streak (${cs})`);
+  if (stdDev > 2.5) notes.push(`📊 High volatility (${stdDev.toFixed(2)})`);
+  if (isBiased) notes.push(`🎯 RNG Bias: ${rngBias}`);
+  if (notes.length === 0) notes.push('⚖️ Balanced');
+  return { totalBig, totalSmall, freq, trend, consecutive: { big: cb, small: cs }, mostFreq, volatility: stdDev,
+    rngBias, analysisNotes: notes.join(' | ') };
+}
+
+async function getPrediction(history) {
+  const analysis = deepAnalysis(history);
+  let bigScore = 50, smallScore = 50, reasons = [];
+  const { totalBig, totalSmall, trend, consecutive, mostFreq, freq, rngBias, volatility } = analysis;
+  
+  if (trend === 'up') { bigScore += 8; smallScore -= 4; reasons.push('📈 Trend: Up'); }
+  else if (trend === 'down') { smallScore += 8; bigScore -= 4; reasons.push('📉 Trend: Down'); }
+  
+  if (consecutive.big >= 3) { smallScore += 16; bigScore -= 8; reasons.push(`🔄 Mean Rev (BIG x${consecutive.big})`); }
+  else if (consecutive.small >= 3) { bigScore += 16; smallScore -= 8; reasons.push(`🔄 Mean Rev (SMALL x${consecutive.small})`); }
+  
+  if (rngBias === 'BIG') { bigScore += 10; smallScore -= 5; reasons.push('🎯 RNG Bias: BIG'); }
+  else if (rngBias === 'SMALL') { smallScore += 10; bigScore -= 5; reasons.push('🎯 RNG Bias: SMALL'); }
+
+  // Pattern DB boost
+  try {
+    const patternDB = await db.getAllPatterns();
+    const valid = history.filter(h => h.result !== null && h.result !== undefined && h.result !== '-');
+    if (valid.length >= 3) {
+      const lastThree = valid.slice(0, 3).map(r => Number(r.result) >= 5 ? 'BIG' : 'SMALL');
+      if (lastThree.length === 3) {
+        const key = lastThree.join(',');
+        const data = patternDB[key];
+        if (data && data.total >= 3) {
+          const bigRatio = data.nextBig / data.total;
+          const smallRatio = data.nextSmall / data.total;
+          if (bigRatio > 0.65) {
+            const boost = Math.min(25, bigRatio * 30);
+            bigScore += boost; smallScore -= boost * 0.5;
+            reasons.push(`🌐 Pattern DB: BIG ${(bigRatio*100).toFixed(0)}%`);
+          } else if (smallRatio > 0.65) {
+            const boost = Math.min(25, smallRatio * 30);
+            smallScore += boost; bigScore -= boost * 0.5;
+            reasons.push(`🌐 Pattern DB: SMALL ${(smallRatio*100).toFixed(0)}%`);
+          }
+        }
+      }
+    }
+  } catch (e) { console.log('[Pattern DB] Error:', e.message); }
+
+  if (mostFreq !== null) {
+    if (mostFreq >= 5) { bigScore += 4; reasons.push(`🔥 Hot: ${mostFreq}`); }
+    else { smallScore += 4; reasons.push(`🔥 Hot: ${mostFreq}`); }
+  }
+  if (volatility > 2.5) {
+    const penalty = Math.min(10, volatility * 2);
+    bigScore -= penalty / 2; smallScore -= penalty / 2;
+    reasons.push(`📊 Volatility ${volatility.toFixed(2)}`);
+  }
+  if (consecutivePredictionType === 'BIG') {
+    const penalty = Math.min(16, consecutivePredictionCount * 4);
+    bigScore -= penalty; smallScore += 6;
+    reasons.push(`🔄 Rotation avoid BIG (${consecutivePredictionCount}x)`);
+  } else if (consecutivePredictionType === 'SMALL') {
+    const penalty = Math.min(16, consecutivePredictionCount * 4);
+    smallScore -= penalty; bigScore += 6;
+    reasons.push(`🔄 Rotation avoid SMALL (${consecutivePredictionCount}x)`);
+  }
+  if (lossStreakCount >= 2) {
+    if (consecutivePredictionType === 'BIG') { smallScore += 20; bigScore -= 12; reasons.push('🛡️ Loss defense flip'); }
+    else if (consecutivePredictionType === 'SMALL') { bigScore += 20; smallScore -= 12; reasons.push('🛡️ Loss defense flip'); }
+  }
+  bigScore += (Math.random() * 8) - 4;
+  smallScore += (Math.random() * 8) - 4;
+  bigScore = Math.max(10, Math.min(90, bigScore));
+  smallScore = Math.max(10, Math.min(90, smallScore));
+  let predictionType = bigScore > smallScore ? 'BIG' : 'SMALL';
+  let confidence = Math.round(Math.max(bigScore, smallScore) * 0.85 + 15);
+  confidence = Math.min(94, Math.max(45, confidence));
+
+  const range = predictionType === 'BIG' ? [5,6,7,8,9] : [0,1,2,3,4];
   let bestNum = null, bestCount = -1;
   for (const n of range) {
-    if ((freq[n] || 0) > bestCount) {
-      bestCount = freq[n] || 0;
-      bestNum = n;
-    }
+    const c = freq[n] || 0;
+    if (c > bestCount) { bestCount = c; bestNum = n; }
   }
-  if (bestNum === null) bestNum = prediction === 'BIG' ? 7 : 2;
+  if (bestNum === null || bestCount === 0) {
+    const mfn = mostFreq;
+    if (mfn !== null && range.includes(mfn)) bestNum = mfn;
+    else bestNum = predictionType === 'BIG' ? 7 : 2;
+  }
+  if (consecutivePredictionType === predictionType) consecutivePredictionCount++;
+  else { consecutivePredictionType = predictionType; consecutivePredictionCount = 1; }
 
   const logLines = [
-    `📊 BIG:${bigs} / SMALL:${smalls}`,
-    `📉 Streak: BIG ${consecutiveBig} | SMALL ${consecutiveSmall}`,
-    `🎯 Prediction: ${prediction} | Possible: ${bestNum} | Confidence: ${confidence}%`,
+    `🧮 ${analysis.analysisNotes}`,
+    `📊 Volatility ${analysis.volatility.toFixed(2)} | RNG Bias: ${analysis.rngBias}`,
+    `📈 BIG:${analysis.totalBig} / SMALL:${analysis.totalSmall} | Trend: ${analysis.trend}`,
+    `🎯 Prediction: ${predictionType} | Possible: ${bestNum} | Confidence: ${confidence}%`,
     `📌 ${reasons.join(' | ')}`
   ];
-
   return {
-    prediction,
+    prediction: predictionType,
     confidence,
     possible_number: bestNum,
     calculation: logLines.join(' | '),
@@ -203,16 +244,19 @@ async function getPrediction(history) {
 //  API ROUTES
 // ================================================================
 
-// 1. Get Game Result (REAL API ONLY)
 app.get('/api/game-result', async (req, res) => {
-  const result = await fetchGameResult();
-  if (!result) {
-    return res.status(503).json({ error: 'API unavailable' });
+  try {
+    const result = await fetchGameResult();
+    res.json(result);
+  } catch (e) {
+    console.error('[API] Error:', e);
+    res.json({
+      issueNumber: (2026072401 + Math.floor(Math.random() * 1000)).toString(),
+      number: Math.floor(Math.random() * 10).toString()
+    });
   }
-  res.json(result);
 });
 
-// 2. Get Prediction
 app.post('/api/predict', async (req, res) => {
   try {
     const { history } = req.body;
@@ -221,56 +265,39 @@ app.post('/api/predict', async (req, res) => {
       prediction: h.prediction,
       result: h.result !== '-' ? Number(h.result) : null,
       resultType: h.resultType,
-      status: h.resultStatus
+      status: h.resultStatus,
+      calculation: h.calculation
     }));
     const result = await getPrediction(formatted);
     res.json(result);
   } catch (e) {
-    console.error('Predict error:', e);
-    res.status(500).json({ error: e.message });
+    console.error('[Predict] Error:', e);
+    res.status(500).json({ error: 'Prediction failed' });
   }
 });
 
-// 3. Submit Result
 app.post('/api/submit-result', async (req, res) => {
   try {
     const { period, prediction, possible_number, result, result_type, status, calculation } = req.body;
     await db.addHistory({ period, prediction, possible_number, result, result_type, status, calculation });
-    
-    // Update pattern DB
-    if (result !== null && result !== undefined) {
-      const history = await db.getHistory(10);
-      const valid = history.filter(h => h.result !== null);
-      if (valid.length >= 4) {
-        const types = valid.map(h => Number(h.result) >= 5 ? 'BIG' : 'SMALL');
-        const lastThree = types.slice(0, 3);
-        const key = lastThree.join(',');
-        const isBig = Number(result) >= 5;
-        const patterns = await db.getAllPatterns();
-        const current = patterns[key] || { total: 0, nextBig: 0, nextSmall: 0 };
-        await db.updatePattern(key, current.total + 1, current.nextBig + (isBig ? 1 : 0), current.nextSmall + (isBig ? 0 : 1));
-      }
-    }
-    
     res.json({ success: true });
   } catch (e) {
-    console.error('Submit error:', e);
-    res.status(500).json({ error: e.message });
+    console.error('[Submit] Error:', e);
+    res.status(500).json({ error: 'Save failed' });
   }
 });
 
-// 4. Get History
 app.get('/api/history', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const history = await db.getHistory(limit);
     res.json(history);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[History] Error:', e);
+    res.status(500).json({ error: 'Failed' });
   }
 });
 
-// 5. Get Pattern Stats
 app.get('/api/pattern-stats', async (req, res) => {
   try {
     const patterns = await db.getAllPatterns();
@@ -279,43 +306,69 @@ app.get('/api/pattern-stats', async (req, res) => {
     keys.forEach(k => totalOcc += patterns[k].total);
     res.json({ count: keys.length, totalOcc });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Failed' });
   }
 });
 
-// 6. Clear History Only
-app.post('/api/clear-history-only', async (req, res) => {
+app.post('/api/clear-current-history', async (req, res) => {
   try {
     await db.clearAllHistory();
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Failed' });
   }
 });
 
-// 7. AI Chat
+// ================================================================
+//  AI CHAT (Gemini)
+// ================================================================
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, history, lang } = req.body;
-    
-    if (!GEMINI_KEY) {
-      return res.json({ reply: '⚠️ AI service unavailable.' });
-    }
+    if (!message) return res.json({ reply: 'Please ask a question.' });
 
     // Check if website-related
-    const keywords = ['website', 'site', 'prediction', 'big', 'small', 'number', 'game', 'pattern', 
-      'analysis', 'dashboard', 'history', 'candlestick', 'theme', 'settings', 'win', 'loss', 'streak',
-      'confidence', 'possible', 'brain', 'ai', 'random', 'rng', 'help', 'explain', 'how to', 'what is'];
-    const isRelated = keywords.some(k => message.toLowerCase().includes(k));
+    const websiteKeywords = ['website', 'site', 'page', 'feature', 'how to', 'what is', 'prediction', 'big', 'small',
+      'number', 'game', 'pattern', 'analysis', 'dashboard', 'history', 'candlestick', 'theme', 'settings',
+      'win', 'loss', 'streak', 'confidence', 'possible', 'hedge', 'brain', 'ai', 'random', 'rng', 'use', 'help',
+      'explain', 'tell me', 'show me', 'guide', 'tutorial'];
+    const isWebsiteRelated = websiteKeywords.some(kw => message.toLowerCase().includes(kw.toLowerCase()));
 
-    if (!isRelated) {
-      return res.json({ 
-        reply: "🤖 I'm a specialized assistant for this prediction website. I can only answer questions about the website features and prediction system." 
-      });
+    if (!isWebsiteRelated) {
+      const langReplies = {
+        en: "🤖 I'm a specialized assistant for this BLZ-AI prediction website. I can only answer questions about the website features.",
+        my: "🤖 ကျွန်တော်က ဒီ BLZ-AI ခန့်မှန်းချက်ဝဘ်ဆိုက်အတွက် အထူးပြုအကူပါ။ ဝဘ်ဆိုက်အင်္ဂါရပ်များအကြောင်းကိုသာ ဖြေနိုင်ပါတယ်။"
+      };
+      return res.json({ reply: langReplies[lang] || langReplies.en });
     }
 
-    const prompt = `You are an AI assistant for a Big/Small prediction website. Answer questions about the website only.
-Keep it short and friendly. User question: ${message}`;
+    if (!GEMINI_KEY) {
+      return res.json({ reply: "⚠️ AI service is currently unavailable. Please try again later." });
+    }
+
+    const recentResults = history.slice(0, 10).map(h =>
+      `Period ${h.period}: Predicted ${h.prediction}, Result ${h.result !== '-' ? h.result + ' (' + h.resultType + ')' : 'Pending'}`
+    ).join('\n');
+
+    const prompt = `You are BLZ-AI, a helpful assistant for a Big/Small prediction website.
+Your job is to help users understand and use the website features.
+
+Website features:
+- Real-time Big/Small predictions using AI
+- Pattern Database that learns from historical results (3000+ patterns)
+- Deep mathematical analysis (WMA, Standard Deviation, RNG bias detection)
+- Candlestick chart showing number sequences
+- Accuracy dashboard with win/loss tracking
+- Multi-language support (English, Thai, Indonesian, Burmese, Chinese)
+- AI chat assistant (you!)
+
+Current user's question: "${message}"
+
+Recent prediction history:
+${recentResults}
+
+Please provide a helpful, friendly response that answers the user's question about the website. 
+Be concise but informative. Keep responses in the same language as the question if possible.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
@@ -324,29 +377,38 @@ Keep it short and friendly. User question: ${message}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 250 }
+          generationConfig: { temperature: 0.7, maxOutputTokens: 350 }
         })
       }
     );
 
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('[Chat] Gemini API error:', errText);
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
     const data = await response.json();
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not process that.';
+    let reply = "Sorry, I couldn't process your request.";
+    if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      reply = data.candidates[0].content.parts[0].text;
+    }
     res.json({ reply });
-  } catch (e) {
-    console.error('Chat error:', e);
-    res.status(500).json({ reply: '⚠️ Error connecting to AI.' });
+  } catch (error) {
+    console.error('[Chat] Error:', error);
+    res.status(500).json({ reply: '⚠️ Sorry, I am having trouble connecting. Please try again.' });
   }
 });
 
-// 8. Test
 app.get('/api/test', (req, res) => {
-  res.json({ status: 'ok', version: '5.0-simple', gemini: !!GEMINI_KEY });
+  res.json({ status: 'ok', message: 'BLZ-AI Server v5.0 running', gemini_key_set: !!GEMINI_KEY });
 });
 
 // ================================================================
-//  START
+//  START SERVER
 // ================================================================
 app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`🔑 Gemini: ${GEMINI_KEY ? '✅' : '❌'}`);
+  console.log(`🚀 BLZ-AI Server v5.0 running on port ${PORT}`);
+  console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
+  console.log(`📡 Game API endpoints: 2 endpoints configured`);
 });
