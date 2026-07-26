@@ -1,9 +1,11 @@
 {
   "name": "blz-ai-backend",
-  "version": "4.0.0",
-  "description": "BLZ-AI Server with Chat & Language Support",
+  "version": "5.0.0",
+  "description": "BLZ-AI Server v5.0 with Chat, Language Support & Pattern DB",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "sqlite3": "^5.1.6",
