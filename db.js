@@ -18,11 +18,12 @@ db.serialize(() => {
     pattern_key TEXT PRIMARY KEY,
     total INTEGER DEFAULT 0,
     next_big INTEGER DEFAULT 0,
-    next_small INTEGER DEFAULT 0
+    next_small INTEGER DEFAULT 0,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 });
 
-module.exports = {
+const dbOps = {
   getAllPatterns: () => {
     return new Promise((resolve, reject) => {
       db.all('SELECT * FROM patterns', (err, rows) => {
@@ -33,20 +34,6 @@ module.exports = {
         });
         resolve(map);
       });
-    });
-  },
-  updatePattern: (key, total, nextBig, nextSmall) => {
-    return new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO patterns (pattern_key, total, next_big, next_small)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(pattern_key) DO UPDATE SET
-         total = excluded.total,
-         next_big = excluded.next_big,
-         next_small = excluded.next_small`,
-        [key, total, nextBig, nextSmall],
-        (err) => { if (err) reject(err); resolve(); }
-      );
     });
   },
   addHistory: (entry) => {
@@ -74,3 +61,5 @@ module.exports = {
     });
   }
 };
+
+module.exports = dbOps;
