@@ -1,10 +1,8 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-
 const db = new sqlite3.Database(path.join(__dirname, 'blz_ai.db'));
 
 db.serialize(() => {
-  // History - Unlimited
   db.run(`CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     period TEXT NOT NULL,
@@ -17,7 +15,6 @@ db.serialize(() => {
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // Pattern DB - Unlimited
   db.run(`CREATE TABLE IF NOT EXISTS patterns (
     pattern_key TEXT PRIMARY KEY,
     total INTEGER DEFAULT 0,
@@ -31,7 +28,6 @@ db.serialize(() => {
 });
 
 const dbOps = {
-  // === PATTERN DB ===
   getPattern: (key) => {
     return new Promise((resolve, reject) => {
       db.get('SELECT * FROM patterns WHERE pattern_key = ?', [key], (err, row) => {
@@ -72,13 +68,6 @@ const dbOps = {
       });
     });
   },
-  clearPatterns: () => {
-    return new Promise((resolve, reject) => {
-      db.run('DELETE FROM patterns', (err) => { if (err) reject(err); resolve(); });
-    });
-  },
-
-  // === HISTORY ===
   addHistory: (entry) => {
     return new Promise((resolve, reject) => {
       const { period, prediction, possible_number, result, result_type, status, calculation } = entry;
@@ -90,15 +79,6 @@ const dbOps = {
       );
     });
   },
-  updateHistoryResult: (id, result, resultType, status) => {
-    return new Promise((resolve, reject) => {
-      db.run(
-        `UPDATE history SET result = ?, result_type = ?, status = ? WHERE id = ?`,
-        [result, resultType, status, id],
-        (err) => { if (err) reject(err); resolve(); }
-      );
-    });
-  },
   getHistory: (limit = 100) => {
     return new Promise((resolve, reject) => {
       db.all('SELECT * FROM history ORDER BY id DESC LIMIT ?', [limit], (err, rows) => {
@@ -107,17 +87,14 @@ const dbOps = {
       });
     });
   },
-  getHistoryForAnalysis: (limit = 30) => {
-    return new Promise((resolve, reject) => {
-      db.all('SELECT * FROM history WHERE result IS NOT NULL ORDER BY id DESC LIMIT ?', [limit], (err, rows) => {
-        if (err) reject(err);
-        resolve(rows);
-      });
-    });
-  },
   clearAllHistory: () => {
     return new Promise((resolve, reject) => {
       db.run('DELETE FROM history', (err) => { if (err) reject(err); resolve(); });
+    });
+  },
+  clearPatterns: () => {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM patterns', (err) => { if (err) reject(err); resolve(); });
     });
   }
 };
