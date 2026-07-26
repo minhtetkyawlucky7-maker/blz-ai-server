@@ -14,25 +14,24 @@ db.serialize(() => {
     calculation TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS patterns (
     pattern_key TEXT PRIMARY KEY,
     total INTEGER DEFAULT 0,
     next_big INTEGER DEFAULT 0,
-    next_small INTEGER DEFAULT 0,
-    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+    next_small INTEGER DEFAULT 0
   )`);
-
-  db.run(`CREATE INDEX IF NOT EXISTS idx_history_period ON history(period)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_history_status ON history(status)`);
 });
 
-const dbOps = {
-  getPattern: (key) => {
+module.exports = {
+  getAllPatterns: () => {
     return new Promise((resolve, reject) => {
-      db.get('SELECT * FROM patterns WHERE pattern_key = ?', [key], (err, row) => {
+      db.all('SELECT * FROM patterns', (err, rows) => {
         if (err) reject(err);
-        resolve(row);
+        const map = {};
+        rows.forEach(row => {
+          map[row.pattern_key] = { total: row.total, nextBig: row.next_big, nextSmall: row.next_small };
+        });
+        resolve(map);
       });
     });
   },
@@ -42,30 +41,12 @@ const dbOps = {
         `INSERT INTO patterns (pattern_key, total, next_big, next_small)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(pattern_key) DO UPDATE SET
-         total = total + excluded.total,
-         next_big = next_big + excluded.next_big,
-         next_small = next_small + excluded.next_small,
-         last_updated = CURRENT_TIMESTAMP`,
+         total = excluded.total,
+         next_big = excluded.next_big,
+         next_small = excluded.next_small`,
         [key, total, nextBig, nextSmall],
         (err) => { if (err) reject(err); resolve(); }
       );
-    });
-  },
-  getAllPatterns: () => {
-    return new Promise((resolve, reject) => {
-      db.all('SELECT * FROM patterns ORDER BY total DESC', (err, rows) => {
-        if (err) reject(err);
-        const map = {};
-        rows.forEach(row => {
-          map[row.pattern_key] = {
-            total: row.total,
-            nextBig: row.next_big,
-            nextSmall: row.next_small,
-            lastUpdated: row.last_updated
-          };
-        });
-        resolve(map);
-      });
     });
   },
   addHistory: (entry) => {
@@ -91,12 +72,5 @@ const dbOps = {
     return new Promise((resolve, reject) => {
       db.run('DELETE FROM history', (err) => { if (err) reject(err); resolve(); });
     });
-  },
-  clearPatterns: () => {
-    return new Promise((resolve, reject) => {
-      db.run('DELETE FROM patterns', (err) => { if (err) reject(err); resolve(); });
-    });
   }
 };
-
-module.exports = dbOps;
