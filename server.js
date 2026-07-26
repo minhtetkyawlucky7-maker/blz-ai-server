@@ -8,79 +8,127 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-// CORS
+// ================================================================
+//  MIDDLEWARE
+// ================================================================
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json());
 app.use(express.static('public'));
 
 // ================================================================
-//  FETCH GAME RESULT (Real API)
-// ================================================================
-async function fetchGameResult() {
-  const API_URL = 'https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList';
-  try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList',
-        'Origin': 'https://ckygjf6r.com',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        pageSize: 10, pageNo: 1, typeId: 1, language: 0,
-        random: '69b04bcd437f496c8c97e763af16ba03',
-        signature: '10BDFF509233B671B9DB6C661F1DC2F3',
-        timestamp: Math.floor(Date.now() / 1000)
-      })
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    if (data?.data?.list?.[0]) return data.data.list[0];
-    throw new Error('No data');
-  } catch (e) {
-    console.error('[API] Error:', e.message);
-    return null;
-  }
-}
-
-// ================================================================
-//  AI PREDICTION ENGINE (for /api/predict)
+//  GLOBAL STATE
 // ================================================================
 let consecutivePredictionType = null;
 let consecutivePredictionCount = 0;
 let lossStreakCount = 0;
 
-function deepAnalysis(history) {
-  const valid = history.filter(h => h.result !== null && h.result !== undefined);
-  const recent = valid.slice(0, 30);
-  if (recent.length < 5) {
-    return { totalBig: 0, totalSmall: 0, freq: {}, trend: 'neutral', consecutive: { big: 0, small: 0 },
-      mostFreq: null, volatility: 0, rngBias: 'neutral', analysisNotes: 'Need more data' };
+// ================================================================
+//  FETCH GAME RESULT (REAL API)
+// ================================================================
+async function fetchGameResult() {
+  const API_URL = 'https://ckygjf6r.com/api/webapi/GetNoaverageEmerdList';
+  
+  try {
+    console.log(`[📡 API] Fetching from: ${API_URL}`);
+    
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://ckygjf6r.com/',
+        'Origin': 'https://ckygjf6r.com',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        pageSize: 10,
+        pageNo: 1,
+        typeId: 1,
+        language: 0,
+        random: '69b04bcd437f496c8c97e763af16ba03',
+        signature: '10BDFF509233B671B9DB6C661F1DC2F3',
+        timestamp: Math.floor(Date.now() / 1000)
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error(`[📡 API] HTTP ${response.status}:`, text.substring(0, 200));
+      return null;
+    }
+
+    const rawText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (e) {
+      console.error('[📡 API] JSON Parse Error:', e.message);
+      return null;
+    }
+
+    if (data?.data?.list && data.data.list.length > 0) {
+      console.log(`[📡 API] Success: Found ${data.data.list.length} records`);
+      return data.data.list[0];
+    }
+
+    return null;
+
+  } catch (error) {
+    console.error('[📡 API] Fetch error:', error.message);
+    return null;
   }
+}
+
+// ================================================================
+//  DEEP ANALYSIS ENGINE
+// ================================================================
+function deepAnalysis(history) {
+  const valid = history.filter(h => h.result !== null && h.result !== undefined && h.result !== '-');
+  const recent = valid.slice(0, 30);
+  
+  if (recent.length < 5) {
+    return {
+      totalBig: 0, totalSmall: 0, freq: {},
+      trend: 'neutral', consecutive: { big: 0, small: 0 },
+      mostFreq: null, volatility: 0, rngBias: 'neutral',
+      analysisNotes: 'Need at least 5 results for deep analysis.'
+    };
+  }
+
   const numbers = recent.map(r => Number(r.result));
   const totalBig = numbers.filter(n => n >= 5).length;
   const totalSmall = numbers.filter(n => n < 5).length;
+  
   const freq = {};
   numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
+  
   let mostFreq = null, maxF = 0;
-  for (const [n, c] of Object.entries(freq)) if (c > maxF) { maxF = c; mostFreq = Number(n); }
+  for (const [n, c] of Object.entries(freq)) {
+    if (c > maxF) { maxF = c; mostFreq = Number(n); }
+  }
+
   const types = numbers.map(n => n >= 5 ? 'BIG' : 'SMALL');
   let cb = 0, cs = 0;
   for (let i = types.length - 1; i >= 0; i--) {
-    if (types[i] === 'BIG') { cb++; cs = 0; } else { cs++; cb = 0; }
+    if (types[i] === 'BIG') { cb++; cs = 0; }
+    else { cs++; cb = 0; }
     if (i === types.length - 1) continue;
     if (types[i] !== types[types.length - 1]) break;
   }
+
+  // Weighted Moving Average
   const weights = numbers.map((_, i) => i + 1);
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   const weightedSum = numbers.reduce((sum, n, i) => sum + n * weights[i], 0);
   const wma = weightedSum / totalWeight;
   const mean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
   const trend = wma > mean + 0.5 ? 'up' : wma < mean - 0.5 ? 'down' : 'neutral';
+
+  // Standard Deviation
   const variance = numbers.reduce((sum, n) => sum + Math.pow(n - mean, 2), 0) / numbers.length;
   const stdDev = Math.sqrt(variance);
+
+  // Chi-square RNG Bias Test
   const expected = numbers.length / 10;
   let chiSquare = 0;
   for (let i = 0; i <= 9; i++) {
@@ -89,60 +137,88 @@ function deepAnalysis(history) {
   }
   const isBiased = chiSquare > 16.92;
   const rngBias = isBiased ? (mostFreq >= 5 ? 'BIG' : 'SMALL') : 'neutral';
+
   const notes = [];
-  if (cb >= 4) notes.push(`🔥 BIG streak (${cb})`);
-  if (cs >= 4) notes.push(`❄️ SMALL streak (${cs})`);
+  if (cb >= 4) notes.push(`🔥 Strong BIG streak (${cb})`);
+  if (cs >= 4) notes.push(`❄️ Strong SMALL streak (${cs})`);
   if (stdDev > 2.5) notes.push(`📊 High volatility (${stdDev.toFixed(2)})`);
-  if (isBiased) notes.push(`🎯 RNG Bias: ${rngBias}`);
-  if (notes.length === 0) notes.push('⚖️ Balanced');
-  return { totalBig, totalSmall, freq, trend, consecutive: { big: cb, small: cs }, mostFreq, volatility: stdDev,
-    rngBias, analysisNotes: notes.join(' | ') };
+  if (isBiased) notes.push(`🎯 RNG Bias detected: ${rngBias}`);
+  if (notes.length === 0) notes.push('⚖️ Balanced distribution');
+
+  return {
+    totalBig, totalSmall, freq, trend,
+    consecutive: { big: cb, small: cs },
+    mostFreq, volatility: stdDev, rngBias,
+    analysisNotes: notes.join(' | ')
+  };
 }
 
+// ================================================================
+//  GET PREDICTION (With Pattern DB Boost)
+// ================================================================
 async function getPrediction(history) {
   const analysis = deepAnalysis(history);
-  let bigScore = 50, smallScore = 50, reasons = [];
   const { totalBig, totalSmall, trend, consecutive, mostFreq, freq, rngBias, volatility } = analysis;
+  
+  let bigScore = 50;
+  let smallScore = 50;
+  const reasons = [];
+
+  // 1. Trend
   if (trend === 'up') { bigScore += 8; smallScore -= 4; reasons.push('📈 Trend: Up'); }
   else if (trend === 'down') { smallScore += 8; bigScore -= 4; reasons.push('📉 Trend: Down'); }
+
+  // 2. Mean Reversion
   if (consecutive.big >= 3) { smallScore += 16; bigScore -= 8; reasons.push(`🔄 Mean Rev (BIG x${consecutive.big})`); }
   else if (consecutive.small >= 3) { bigScore += 16; smallScore -= 8; reasons.push(`🔄 Mean Rev (SMALL x${consecutive.small})`); }
+
+  // 3. RNG Bias
   if (rngBias === 'BIG') { bigScore += 10; smallScore -= 5; reasons.push('🎯 RNG Bias: BIG'); }
   else if (rngBias === 'SMALL') { smallScore += 10; bigScore -= 5; reasons.push('🎯 RNG Bias: SMALL'); }
 
-  // Pattern DB boost (from db)
-  const patternDB = await db.getAllPatterns();
-  const valid = history.filter(h => h.result !== null && h.result !== undefined);
-  if (valid.length >= 3) {
-    const lastThree = valid.slice(0, 3).map(r => Number(r.result) >= 5 ? 'BIG' : 'SMALL');
-    if (lastThree.length === 3) {
-      const key = lastThree.join(',');
-      const data = patternDB[key];
-      if (data && data.total >= 3) {
-        const bigRatio = data.nextBig / data.total;
-        const smallRatio = data.nextSmall / data.total;
-        if (bigRatio > 0.65) {
-          const boost = Math.min(25, bigRatio * 30);
-          bigScore += boost; smallScore -= boost * 0.5;
-          reasons.push(`🌐 Pattern DB: BIG ${(bigRatio*100).toFixed(0)}%`);
-        } else if (smallRatio > 0.65) {
-          const boost = Math.min(25, smallRatio * 30);
-          smallScore += boost; bigScore -= boost * 0.5;
-          reasons.push(`🌐 Pattern DB: SMALL ${(smallRatio*100).toFixed(0)}%`);
+  // 4. Pattern DB Boost (from database)
+  try {
+    const patternDB = await db.getAllPatterns();
+    const valid = history.filter(h => h.result !== null && h.result !== undefined && h.result !== '-');
+    if (valid.length >= 3) {
+      const lastThree = valid.slice(0, 3).map(r => Number(r.result) >= 5 ? 'BIG' : 'SMALL');
+      if (lastThree.length === 3) {
+        const key = lastThree.join(',');
+        const data = patternDB[key];
+        if (data && data.total >= 3) {
+          const bigRatio = data.nextBig / data.total;
+          const smallRatio = data.nextSmall / data.total;
+          if (bigRatio > 0.65) {
+            const boost = Math.min(25, bigRatio * 30);
+            bigScore += boost; smallScore -= boost * 0.5;
+            reasons.push(`🌐 Pattern DB: BIG ${(bigRatio*100).toFixed(0)}% (${data.total} occ)`);
+          } else if (smallRatio > 0.65) {
+            const boost = Math.min(25, smallRatio * 30);
+            smallScore += boost; bigScore -= boost * 0.5;
+            reasons.push(`🌐 Pattern DB: SMALL ${(smallRatio*100).toFixed(0)}% (${data.total} occ)`);
+          }
         }
       }
     }
+  } catch (e) {
+    console.warn('[Pattern DB] Error:', e.message);
   }
 
+  // 5. Hot Number
   if (mostFreq !== null) {
     if (mostFreq >= 5) { bigScore += 4; reasons.push(`🔥 Hot: ${mostFreq}`); }
     else { smallScore += 4; reasons.push(`🔥 Hot: ${mostFreq}`); }
   }
+
+  // 6. Volatility
   if (volatility > 2.5) {
     const penalty = Math.min(10, volatility * 2);
-    bigScore -= penalty / 2; smallScore -= penalty / 2;
+    bigScore -= penalty / 2;
+    smallScore -= penalty / 2;
     reasons.push(`📊 Volatility ${volatility.toFixed(2)}`);
   }
+
+  // 7. Prediction Rotation
   if (consecutivePredictionType === 'BIG') {
     const penalty = Math.min(16, consecutivePredictionCount * 4);
     bigScore -= penalty; smallScore += 6;
@@ -152,19 +228,31 @@ async function getPrediction(history) {
     smallScore -= penalty; bigScore += 6;
     reasons.push(`🔄 Rotation avoid SMALL (${consecutivePredictionCount}x)`);
   }
+
+  // 8. Loss Defense
   if (lossStreakCount >= 2) {
-    if (consecutivePredictionType === 'BIG') { smallScore += 20; bigScore -= 12; reasons.push('🛡️ Loss defense flip'); }
-    else if (consecutivePredictionType === 'SMALL') { bigScore += 20; smallScore -= 12; reasons.push('🛡️ Loss defense flip'); }
+    if (consecutivePredictionType === 'BIG') {
+      smallScore += 20; bigScore -= 12;
+      reasons.push('🛡️ Loss defense: flip');
+    } else if (consecutivePredictionType === 'SMALL') {
+      bigScore += 20; smallScore -= 12;
+      reasons.push('🛡️ Loss defense: flip');
+    }
   }
+
+  // 9. Noise (Flexibility)
   bigScore += (Math.random() * 8) - 4;
   smallScore += (Math.random() * 8) - 4;
   bigScore = Math.max(10, Math.min(90, bigScore));
   smallScore = Math.max(10, Math.min(90, smallScore));
+
+  // Final Decision
   let predictionType = bigScore > smallScore ? 'BIG' : 'SMALL';
   let confidence = Math.round(Math.max(bigScore, smallScore) * 0.85 + 15);
   confidence = Math.min(94, Math.max(45, confidence));
 
-  const range = predictionType === 'BIG' ? [5,6,7,8,9] : [0,1,2,3,4];
+  // Possible Number
+  const range = predictionType === 'BIG' ? [5, 6, 7, 8, 9] : [0, 1, 2, 3, 4];
   let bestNum = null, bestCount = -1;
   for (const n of range) {
     const c = freq[n] || 0;
@@ -175,16 +263,24 @@ async function getPrediction(history) {
     if (mfn !== null && range.includes(mfn)) bestNum = mfn;
     else bestNum = predictionType === 'BIG' ? 7 : 2;
   }
-  if (consecutivePredictionType === predictionType) consecutivePredictionCount++;
-  else { consecutivePredictionType = predictionType; consecutivePredictionCount = 1; }
+
+  // Update global state
+  if (consecutivePredictionType === predictionType) {
+    consecutivePredictionCount++;
+  } else {
+    consecutivePredictionType = predictionType;
+    consecutivePredictionCount = 1;
+  }
 
   const logLines = [
     `🧮 ${analysis.analysisNotes}`,
-    `📊 Volatility ${analysis.volatility.toFixed(2)} | RNG Bias: ${analysis.rngBias}`,
-    `📈 BIG:${analysis.totalBig} / SMALL:${analysis.totalSmall} | Trend: ${analysis.trend}`,
+    `📊 Volatility: ${volatility.toFixed(2)} | RNG Bias: ${rngBias}`,
+    `📈 BIG:${totalBig} / SMALL:${totalSmall} | Trend: ${trend}`,
+    `🧠 Scores: BIG=${Math.round(bigScore)} SMALL=${Math.round(smallScore)}`,
     `🎯 Prediction: ${predictionType} | Possible: ${bestNum} | Confidence: ${confidence}%`,
     `📌 ${reasons.join(' | ')}`
   ];
+
   return {
     prediction: predictionType,
     confidence,
@@ -198,17 +294,26 @@ async function getPrediction(history) {
 //  API ROUTES
 // ================================================================
 
+// 1. Get Game Result
 app.get('/api/game-result', async (req, res) => {
   try {
     const result = await fetchGameResult();
-    if (!result) return res.status(503).json({ error: 'No data' });
+    if (!result) return res.status(503).json({ error: 'No data from API' });
     res.json(result);
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[API] /game-result error:', e);
+    res.status(500).json({ error: 'Failed to fetch' });
+  }
 });
 
+// 2. Get Prediction
 app.post('/api/predict', async (req, res) => {
   try {
     const { history } = req.body;
+    if (!history || !Array.isArray(history)) {
+      return res.status(400).json({ error: 'Invalid history data' });
+    }
+    
     const formatted = history.map(h => ({
       period: h.period,
       prediction: h.prediction,
@@ -217,27 +322,43 @@ app.post('/api/predict', async (req, res) => {
       status: h.resultStatus,
       calculation: h.calculation
     }));
+    
     const result = await getPrediction(formatted);
     res.json(result);
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Prediction failed' }); }
+  } catch (e) {
+    console.error('[API] /predict error:', e);
+    res.status(500).json({ error: 'Prediction failed: ' + e.message });
+  }
 });
 
+// 3. Submit Result
 app.post('/api/submit-result', async (req, res) => {
   try {
     const { period, prediction, possible_number, result, result_type, status, calculation } = req.body;
-    await db.addHistory({ period, prediction, possible_number, result, result_type, status, calculation });
+    await db.addHistory({
+      period, prediction, possible_number,
+      result, result_type, status, calculation
+    });
     res.json({ success: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Save failed' }); }
+  } catch (e) {
+    console.error('[API] /submit-result error:', e);
+    res.status(500).json({ error: 'Save failed' });
+  }
 });
 
+// 4. Get History
 app.get('/api/history', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const history = await db.getHistory(limit);
     res.json(history);
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[API] /history error:', e);
+    res.status(500).json({ error: 'Failed to get history' });
+  }
 });
 
+// 5. Pattern Stats
 app.get('/api/pattern-stats', async (req, res) => {
   try {
     const patterns = await db.getAllPatterns();
@@ -245,21 +366,37 @@ app.get('/api/pattern-stats', async (req, res) => {
     let totalOcc = 0;
     keys.forEach(k => totalOcc += patterns[k].total);
     res.json({ count: keys.length, totalOcc });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[API] /pattern-stats error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
 });
 
-app.post('/api/clear-all', async (req, res) => {
-  try { await db.clearAllHistory(); await db.clearPatterns(); res.json({ success: true }); }
-  catch (e) { res.status(500).json({ error: 'Failed' }); }
-});
-
+// 6. Clear Current History Only
 app.post('/api/clear-history-only', async (req, res) => {
-  try { await db.clearAllHistory(); res.json({ success: true }); }
-  catch (e) { res.status(500).json({ error: 'Failed' }); }
+  try {
+    await db.clearAllHistory();
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[API] /clear-history-only error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// 7. Clear All (History + Patterns)
+app.post('/api/clear-all', async (req, res) => {
+  try {
+    await db.clearAllHistory();
+    await db.clearPatterns();
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[API] /clear-all error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
 });
 
 // ================================================================
-//  AI CHAT (Website-only questions)
+//  AI CHAT (Website-only Questions)
 // ================================================================
 app.post('/api/chat', async (req, res) => {
   try {
@@ -267,12 +404,18 @@ app.post('/api/chat', async (req, res) => {
     if (!message) return res.json({ reply: 'Please ask a question.' });
 
     // Check if message is website-related
-    const websiteKeywords = ['website', 'site', 'page', 'feature', 'how to', 'what is', 'prediction', 'big', 'small',
+    const websiteKeywords = [
+      'website', 'site', 'page', 'feature', 'how to', 'what is', 'prediction', 'big', 'small',
       'number', 'game', 'pattern', 'analysis', 'dashboard', 'history', 'candlestick', 'theme', 'settings',
-      'win', 'loss', 'streak', 'confidence', 'possible', 'hedge', 'brain', 'ai', 'random', 'rng', 'use', 'help',
-      'explain', 'tell me', 'show me', 'guide', 'tutorial', 'what does', 'how does'];
-    const isWebsiteRelated = websiteKeywords.some(kw => message.toLowerCase().includes(kw.toLowerCase()));
+      'win', 'loss', 'streak', 'confidence', 'possible', 'hedge', 'brain', 'ai', 'random', 'rng',
+      'use', 'help', 'explain', 'tell me', 'show me', 'guide', 'tutorial', 'what does', 'how does',
+      'bot', 'chat', 'assistant', 'support'
+    ];
+    const isWebsiteRelated = websiteKeywords.some(kw => 
+      message.toLowerCase().includes(kw.toLowerCase())
+    );
 
+    // Language-specific rejection replies
     const langReplies = {
       en: "🤖 I'm a specialized assistant for this BLZ-AI prediction website. I can only answer questions about the website features, prediction system, game analysis, and how to use this tool. Please ask me about the website!",
       th: "🤖 ฉันเป็นผู้ช่วยเฉพาะสำหรับเว็บไซต์ทำนาย BLZ-AI นี้ ฉันสามารถตอบคำถามเกี่ยวกับฟีเจอร์ของเว็บไซต์ ระบบการทำนาย การวิเคราะห์เกม และวิธีการใช้เครื่องมือนี้เท่านั้น กรุณาถามฉันเกี่ยวกับเว็บไซต์!",
@@ -280,19 +423,31 @@ app.post('/api/chat', async (req, res) => {
       my: "🤖 ကျွန်တော်က ဒီ BLZ-AI ခန့်မှန်းချက်ဝဘ်ဆိုက်အတွက် အထူးပြုအကူပါ။ ဝဘ်ဆိုက်အင်္ဂါရပ်များ၊ ခန့်မှန်းချက်စနစ်၊ ဂိမ်းခွဲခြမ်းစိတ်ဖြာမှုနှင့် ဤကိရိယာကို မည်သို့အသုံးပြုရမည်အကြောင်းကိုသာ ဖြေနိုင်ပါတယ်။ ဝဘ်ဆိုက်အကြောင်း မေးပါ။",
       zh: "🤖 我是这个BLZ-AI预测网站的专用助手。我只能回答关于网站功能、预测系统、游戏分析和如何使用这个工具的问题。请问我关于网站的问题！"
     };
+
     if (!isWebsiteRelated) {
       return res.json({ reply: langReplies[lang] || langReplies.en });
     }
 
-    // Build context
-    const recentResults = history.slice(0, 10).map(h =>
-      `Period ${h.period}: Predicted ${h.prediction}, Result ${h.result !== '-' ? h.result + ' (' + h.resultType + ')' : 'Pending'}`
-    ).join('\n');
+    // Check if Gemini API Key is set
+    if (!GEMINI_KEY) {
+      console.warn('[Chat] No Gemini API key set');
+      return res.json({ 
+        reply: "⚠️ The AI chat service is currently unavailable. Please contact the administrator to set up the Gemini API key." 
+      });
+    }
+
+    // Build context from history
+    const recentResults = history.slice(0, 10).map(h => {
+      const resultText = h.result !== '-' && h.result !== undefined && h.result !== null 
+        ? `${h.result} (${h.resultType})` 
+        : 'Pending';
+      return `Period ${h.period}: Predicted ${h.prediction}, Result ${resultText}`;
+    }).join('\n');
 
     const prompt = `You are BLZ-AI, a helpful assistant for a Big/Small prediction website. 
 Your job is to help users understand and use the website features.
 
-Website features:
+WEBSITE FEATURES:
 - Real-time Big/Small predictions using AI
 - Pattern Database that learns from historical results (3000+ patterns)
 - Deep mathematical analysis (WMA, Standard Deviation, RNG bias detection)
@@ -307,12 +462,11 @@ Recent prediction history:
 ${recentResults}
 
 Please provide a helpful, friendly response that answers the user's question about the website. 
-Be concise but informative. Keep responses in the same language as the question if possible.`;
+Be concise but informative (2-3 paragraphs max). 
+Keep responses in the same language as the question if possible.
+If you don't know the answer, say so honestly.`;
 
-    if (!GEMINI_KEY) {
-      console.warn('[Chat] No Gemini API key, using fallback.');
-      return res.json({ reply: "I'm sorry, the AI service is currently unavailable. Please try again later." });
-    }
+    console.log('[Chat] Sending request to Gemini API...');
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
@@ -321,23 +475,44 @@ Be concise but informative. Keep responses in the same language as the question 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 350 }
+          generationConfig: { 
+            temperature: 0.7, 
+            maxOutputTokens: 400,
+            topK: 40,
+            topP: 0.95
+          }
         })
       }
     );
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error('[Chat] Gemini API error:', errText);
-      throw new Error(`Gemini API error: ${response.status}`);
+      console.error('[Chat] Gemini API error:', response.status, errText.substring(0, 200));
+      
+      // Handle specific status codes
+      if (response.status === 401) {
+        return res.json({ 
+          reply: "⚠️ The AI service authentication failed. Please check the Gemini API key configuration." 
+        });
+      } else if (response.status === 429) {
+        return res.json({ 
+          reply: "⚠️ The AI service is currently busy. Please try again in a moment." 
+        });
+      } else {
+        throw new Error(`Gemini API error: ${response.status}`);
+      }
     }
 
     const data = await response.json();
     let reply = "Sorry, I couldn't process your request. Please try again.";
+    
     if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
       reply = data.candidates[0].content.parts[0].text;
     }
+
+    console.log('[Chat] Response sent successfully');
     res.json({ reply });
+
   } catch (error) {
     console.error('[Chat] Error:', error);
     const fallback = {
@@ -351,14 +526,21 @@ Be concise but informative. Keep responses in the same language as the question 
   }
 });
 
+// 8. Test API
 app.get('/api/test', (req, res) => {
-  res.json({ status: 'ok', message: 'BLZ-AI Server running', gemini_key_set: !!GEMINI_KEY });
+  res.json({ 
+    status: 'ok', 
+    message: 'BLZ-AI Server v5.0 running',
+    gemini_key_set: !!GEMINI_KEY,
+    gemini_key_length: GEMINI_KEY ? GEMINI_KEY.length : 0
+  });
 });
 
 // ================================================================
 //  START SERVER
 // ================================================================
 app.listen(PORT, () => {
-  console.log(`🚀 BLZ-AI Server running on port ${PORT}`);
+  console.log(`🚀 BLZ-AI Server v5.0 running on port ${PORT}`);
   console.log(`🔑 Gemini API Key set: ${!!GEMINI_KEY}`);
+  console.log(`📊 Pattern DB: Unlimited (3000+)`);
 });
