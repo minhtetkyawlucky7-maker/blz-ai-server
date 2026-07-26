@@ -26,14 +26,11 @@ db.serialize(() => {
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // Indexes for performance
   db.run(`CREATE INDEX IF NOT EXISTS idx_history_period ON history(period)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_history_status ON history(status)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_patterns_total ON patterns(total)`);
 });
 
 const dbOps = {
-  // Pattern DB
   getPattern: (key) => {
     return new Promise((resolve, reject) => {
       db.get('SELECT * FROM patterns WHERE pattern_key = ?', [key], (err, row) => {
@@ -45,8 +42,8 @@ const dbOps = {
   updatePattern: (key, total, nextBig, nextSmall) => {
     return new Promise((resolve, reject) => {
       db.run(
-        `INSERT INTO patterns (pattern_key, total, next_big, next_small, last_updated)
-         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `INSERT INTO patterns (pattern_key, total, next_big, next_small)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(pattern_key) DO UPDATE SET
          total = total + excluded.total,
          next_big = next_big + excluded.next_big,
@@ -74,16 +71,6 @@ const dbOps = {
       });
     });
   },
-  getPatternCount: () => {
-    return new Promise((resolve, reject) => {
-      db.get('SELECT COUNT(*) as count FROM patterns', (err, row) => {
-        if (err) reject(err);
-        resolve(row ? row.count : 0);
-      });
-    });
-  },
-
-  // History
   addHistory: (entry) => {
     return new Promise((resolve, reject) => {
       const { period, prediction, possible_number, result, result_type, status, calculation } = entry;
